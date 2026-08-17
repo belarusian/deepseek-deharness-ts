@@ -177,6 +177,7 @@ export {
 
 export {
   runAgent,
+  Conversation,
   type AgentOptions,
   type AgentEvent,
   type TurnEndReason,
