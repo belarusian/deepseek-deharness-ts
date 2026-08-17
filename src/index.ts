@@ -137,3 +137,23 @@ export {
   type WireError,
   type DeepSeekAdapterConfig,
 } from "./llm/deepseek/index.js";
+
+// ── Tools (registry + guarded execution pipeline) ──────────────────────────
+// Re-exported so the agent loop (cycles 10-13) composes the tool vocabulary,
+// registry, and pipeline by direct import. Plain modules — no DI, no
+// registration side effects, no Cordis event seams. The LLM seam's
+// `ToolDefinition` (above) is the model-facing projection a `Tool` composes;
+// the tools `Tool` is a distinct name and does not collide with it.
+
+export {
+  ToolRegistry,
+  DuplicateToolError,
+  executeTool,
+  toToolDefinition,
+  toToolResultBlock,
+  type JsonSchema,
+  type Tool,
+  type ToolResult,
+  type ToolContext,
+  type PipelineOptions,
+} from "./tools/index.js";
