@@ -159,3 +159,11 @@ export {
   type ToolContext,
   type PipelineOptions,
 } from "./tools/index.js";
+
+export {
+  defineTool,
+  type ToolSpec,
+  echoTool,
+  addTool,
+  failTool,
+} from "./tools/index.js";
