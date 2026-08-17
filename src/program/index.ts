@@ -14,5 +14,7 @@ export {
   helpText,
   versionText,
   formatResult,
+  formatResultJson,
+  formatToolList,
 } from "./launcher.js";
 export type { LauncherOptions } from "./launcher.js";
