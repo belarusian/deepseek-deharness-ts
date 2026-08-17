@@ -170,13 +170,58 @@ describe("store", () => {
     expect(encodeSegment("nul\x00byte")).toBe("nul~0000byte");
     expect(() => encodeSegment("")).toThrow(/empty/);
     decodeRoundTrips();
+    assertInjective();
   });
 
+  /**
+   * Reverse of {@link encodeSegment}: a literal safe char stays, a `~XXXX`
+   * escape becomes the code unit `XXXX`. Test-only: proves the encoding is
+   * lossless (round-trips). The production seam never decodes segments.
+   */
+  function decodeSegment(encoded: string): string {
+    let out = "";
+    for (let i = 0; i < encoded.length; i++) {
+      const ch = encoded[i];
+      if (ch === "~") {
+        out += String.fromCharCode(parseInt(encoded.slice(i + 1, i + 5), 16));
+        i += 4;
+      } else {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
   function decodeRoundTrips(): void {
-    // Safety: encoded output only contains the safe alphabet.
+    // Safety: encoded output only contains the safe alphabet plus the `~`
+    // escape marker (encodeSegment emits `~XXXX` for every non-safe unit).
     const samples = ["normal", "with space", "dot.dot", "a~b", "ünïcode"];
     for (const s of samples) {
-      expect(encodeSegment(s)).toMatch(/^[A-Za-z0-9._-]+$/);
+      expect(encodeSegment(s)).toMatch(/^[A-Za-z0-9._-~]+$/);
+      // The encoding is lossless: decoding recovers the original string.
+      expect(decodeSegment(encodeSegment(s))).toBe(s);
     }
+  }
+
+  function assertInjective(): void {
+    // Two distinct inputs must never encode to the same segment.
+    const inputs = [
+      "abc-1._zx",
+      ".",
+      "..",
+      "a.",
+      "a..b",
+      "~",
+      "~002E",
+      "a~b",
+      "with space",
+      "ünïcode",
+      "a/b",
+      "nul\x00byte",
+      "dot.dot",
+      "normal",
+    ];
+    const encodings = inputs.map(encodeSegment);
+    expect(new Set(encodings).size).toBe(inputs.length);
   }
 });
