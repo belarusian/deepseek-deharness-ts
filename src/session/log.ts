@@ -133,7 +133,7 @@ export class SessionLog {
           }
         : {}),
     } as SessionEvent<T>;
-    this.#events.push(event);
+    this.#events.push(event as unknown as SessionEvent);
     return event;
   }
 
