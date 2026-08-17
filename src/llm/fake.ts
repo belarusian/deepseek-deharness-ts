@@ -26,13 +26,29 @@ export interface ScriptedResponse {
 /**
  * A scripted, in-memory {@link LlmAdapter}. Responses are consumed in order;
  * exhausting the queue throws {@link LlmFailure} with code `"exhausted"`.
+ *
+ * The adapter also **records** the {@link CallOptions} it is called with (on
+ * every `complete` and `stream`), so a test can assert the `model` /
+ * `maxTokens` passthrough without a live provider. The recording does not
+ * change the scripted-response behavior.
  */
 export class FakeLlmAdapter implements LlmAdapter {
   private readonly queue: readonly ScriptedResponse[];
   private cursor = 0;
+  private readonly recorded: (CallOptions | undefined)[] = [];
 
   constructor(responses: readonly ScriptedResponse[]) {
     this.queue = Object.freeze([...responses]);
+  }
+
+  /** The `CallOptions` recorded for every `complete`/`stream` call, in order. */
+  get callOptions(): readonly (CallOptions | undefined)[] {
+    return this.recorded;
+  }
+
+  /** The `CallOptions` of the most recent call (or `undefined` if none). */
+  get lastCallOptions(): CallOptions | undefined {
+    return this.recorded[this.recorded.length - 1];
   }
 
   /** The number of scripted responses not yet consumed. */
@@ -52,12 +68,14 @@ export class FakeLlmAdapter implements LlmAdapter {
 
   async complete(
     _messages: readonly Message[],
-    _opts?: CallOptions,
+    opts?: CallOptions,
   ): Promise<AssistantMessage> {
+    this.recorded.push(opts);
     return this.next().message;
   }
 
-  stream(_messages: readonly Message[], _opts?: CallOptions): LlmStream {
+  stream(_messages: readonly Message[], opts?: CallOptions): LlmStream {
+    this.recorded.push(opts);
     const { message, chunks } = this.next();
     const derived: readonly StreamChunk[] =
       chunks ?? deriveChunks(message);

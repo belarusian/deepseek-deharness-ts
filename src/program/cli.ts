@@ -17,6 +17,7 @@ import {
   textBlock,
   FakeLlmAdapter,
   type LlmAdapter,
+  type CallOptions,
 } from "../llm/index.js";
 import {
   ToolRegistry,
@@ -40,6 +41,8 @@ export interface CliOptions {
   readonly resume?: boolean;
   readonly json?: boolean;
   readonly list?: boolean;
+  readonly model?: string;
+  readonly maxTokens?: number;
 }
 
 /** The parsed shape of an `argv` array. */
@@ -53,6 +56,8 @@ interface ParsedArgv {
   readonly system: string | undefined;
   readonly json: boolean;
   readonly list: boolean;
+  readonly model: string | undefined;
+  readonly maxTokens: number | undefined;
 }
 
 /**
@@ -60,7 +65,9 @@ interface ParsedArgv {
  * sets `logPath`; `--id <id>` sets `sessionId`; `--resume` sets `resume`;
  * `--stream` sets `stream`; `--max-steps <n>` sets `maxSteps`; `--system
  * <text>` sets `system`; `--json` sets `json`; `--list` sets `list` (both
- * no-value flags, so they are never swallowed as user text).
+ * no-value flags, so they are never swallowed as user text); `--model <name>`
+ * sets `model`; `--max-tokens <n>` sets `maxTokens` (both value flags, like
+ * `--max-steps`).
  */
 function parseArgv(argv: readonly string[]): ParsedArgv {
   let userText: string | undefined;
@@ -72,6 +79,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
   let system: string | undefined;
   let json = false;
   let list = false;
+  let model: string | undefined;
+  let maxTokens: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -91,6 +100,10 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
       json = true;
     } else if (token === "--list") {
       list = true;
+    } else if (token === "--model") {
+      model = argv[++i];
+    } else if (token === "--max-tokens") {
+      maxTokens = Number(argv[++i]);
     } else if (userText === undefined) {
       userText = token;
     }
@@ -107,6 +120,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
     system,
     json,
     list,
+    model,
+    maxTokens,
   };
 }
 
@@ -147,6 +162,13 @@ export async function main(
   const tools = opts?.tools ?? defaultTools();
   const clock = opts?.clock ?? (() => 0);
 
+  const model = parsed.model ?? opts?.model;
+  const maxTokens = parsed.maxTokens ?? opts?.maxTokens;
+  const callOptions: CallOptions | undefined =
+    model !== undefined || maxTokens !== undefined
+      ? { model, maxTokens }
+      : undefined;
+
   const program = new Program({
     adapter,
     tools,
@@ -156,6 +178,7 @@ export async function main(
     maxSteps,
     stream,
     clock,
+    callOptions,
   });
   if (resume) {
     await program.resume();

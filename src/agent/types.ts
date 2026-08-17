@@ -13,6 +13,7 @@ import type {
   ToolResultBlock,
   Message,
   LlmAdapter,
+  CallOptions,
 } from "../llm/index.js";
 import type { ToolRegistry } from "../tools/index.js";
 import type { SessionLog } from "../session/log.js";
@@ -38,6 +39,12 @@ export type TurnEndReason = "completed" | "max_steps" | "aborted" | "error";
  * `log` (optional) is the durable session log the loop folds its trajectory
  * into: each emitted `AgentEvent` is mapped via `toSessionEvent` and appended
  * to the log. When absent, the loop emits only to `onEvent` (if any).
+ *
+ * `callOptions` (optional) is the provider call options (`model` /
+ * `maxTokens` / `temperature`) threaded to the adapter call. The loop still
+ * projects `tools` separately (the authoritative tool list for the turn);
+ * `callOptions.tools`, if present, is overridden by that projection. When
+ * absent, the adapter call is exactly `{ tools }` as before.
  */
 export interface AgentOptions {
   readonly adapter: LlmAdapter;
@@ -48,6 +55,7 @@ export interface AgentOptions {
   readonly signal?: AbortSignal;
   readonly onEvent?: (event: AgentEvent) => void;
   readonly log?: SessionLog;
+  readonly callOptions?: CallOptions;
 }
 
 /**

@@ -24,7 +24,7 @@ import {
   toolResultBlock,
   type Message,
 } from "../llm/index.js";
-import type { LlmAdapter } from "../llm/index.js";
+import type { LlmAdapter, CallOptions } from "../llm/index.js";
 import type { ToolRegistry } from "../tools/index.js";
 import { SessionLog } from "../session/log.js";
 import type { SessionEvent } from "../session/event.js";
@@ -42,6 +42,7 @@ export interface ProgramOptions {
   readonly maxSteps?: number;
   readonly stream?: boolean;
   readonly clock?: () => number;
+  readonly callOptions?: CallOptions;
 }
 
 /** The settled outcome of one {@link Program.run} call. */
@@ -89,6 +90,7 @@ export class Program {
   readonly #maxSteps: number | undefined;
   readonly #stream: boolean | undefined;
   readonly #clock: (() => number) | undefined;
+  readonly #callOptions: CallOptions | undefined;
   readonly logPath: string;
   #log: SessionLog;
   #opts: AgentOptions;
@@ -101,6 +103,7 @@ export class Program {
     this.#maxSteps = opts.maxSteps;
     this.#stream = opts.stream;
     this.#clock = opts.clock;
+    this.#callOptions = opts.callOptions;
     this.logPath = opts.logPath;
     this.#log = new SessionLog(opts.sessionId, { clock: this.#clock });
     this.#opts = this.#buildOpts();
@@ -121,6 +124,7 @@ export class Program {
       maxSteps: this.#maxSteps,
       stream: this.#stream,
       log: this.#log,
+      callOptions: this.#callOptions,
     };
   }
 

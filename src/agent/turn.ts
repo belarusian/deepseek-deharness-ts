@@ -117,8 +117,10 @@ export async function runTurn(
     let assistant: AssistantMessage;
     try {
       assistant = opts.stream
-        ? await assembleAssistant(opts.adapter.stream(transcript, { tools }))
-        : await opts.adapter.complete(transcript, { tools });
+        ? await assembleAssistant(
+            opts.adapter.stream(transcript, { ...opts.callOptions, tools }),
+          )
+        : await opts.adapter.complete(transcript, { ...opts.callOptions, tools });
     } catch {
       end = "error";
       break;
