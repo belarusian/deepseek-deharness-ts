@@ -9,6 +9,7 @@
 
 export { runAgent } from "./loop.js";
 export { Conversation } from "./conversation.js";
+export { toSessionEvent } from "./trajectory.js";
 export type {
   AgentOptions,
   AgentEvent,
