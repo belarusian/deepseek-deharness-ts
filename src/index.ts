@@ -18,11 +18,11 @@ export const name = "deepseek-deharness-ts";
  * Real modules (agent loop, tools, session, llm-adapter) are composed here
  * directly — imported, not registered.
  */
-export interface Program {
+export interface ProgramMarker {
   readonly name: string;
 }
 
-export const program: Program = { name };
+export const program: ProgramMarker = { name };
 
 // ── Session (the outer spoke) ───────────────────────────────────────────────
 // Re-exported so downstream modules (llm-adapter, tools, agent loop) compose
@@ -185,3 +185,17 @@ export {
   type TurnEndReason,
   type AgentResult,
 } from "./agent/index.js";
+
+// ── On-disk Program (the four-algebra composition) ─────────────────────────
+// Re-exported so downstream modules compose the Program, the CLI entrypoint,
+// and their option/result types by direct import. The inline `Program` marker
+// above is `ProgramMarker` (type-only) so the `Program` class re-export below
+// owns the name.
+
+export {
+  Program,
+  main,
+  type ProgramOptions,
+  type ProgramResult,
+  type CliOptions,
+} from "./program/index.js";
