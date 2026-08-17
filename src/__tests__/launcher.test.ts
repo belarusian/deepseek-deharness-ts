@@ -25,6 +25,7 @@ import {
   failTool,
   assistantMessage,
   textBlock,
+  toolCallBlock,
   readLog,
   SessionLog,
   type ProgramResult,
@@ -317,5 +318,181 @@ describe("process-level launcher", () => {
       ].join("\n"),
     );
     expect(out).toBe(formatToolList(tools));
+  });
+});
+
+/**
+ * **E2E program run** (TICKET-070..074) — the Hardening phase's first cycle.
+ *
+ * These cases drive the **real** `launch` (the same entrypoint the on-PATH
+ * `bin` shim calls) through a realistic multi-turn, tool-using session and
+ * assert the full trajectory: the on-disk log, the printed output, the exit
+ * code, and the adapter `CallOptions` it was driven with. They prove the
+ * *composition* works on PATH: `launch` → `main` → `Program` → `runTurn` →
+ * adapter.
+ *
+ * Deterministic and dependency-free: a `FakeLlmAdapter` + built-in tools + a
+ * temp dir (`mkdtempSync` in `os.tmpdir()`) + the CLI's default `() => 0`
+ * clock. No network, no `Date.now()`, no subprocess spawn — the `bin` shim is
+ * exercised indirectly (it has no logic of its own).
+ */
+describe("E2E program run", () => {
+  /** A `FakeLlmAdapter` scripted to a tool round-trip: request `add`, then answer. */
+  function toolAdapter(): FakeLlmAdapter {
+    return new FakeLlmAdapter([
+      {
+        message: assistantMessage(
+          [toolCallBlock("call_1", "add", '{"a":1,"b":2}')],
+          "tool_calls",
+        ),
+      },
+      { message: assistantMessage([textBlock("the sum is 3")], "stop") },
+    ]);
+  }
+
+  it("(a) a multi-turn tool session runs end to end: exit 0, summary, log, CallOptions", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const adapter = toolAdapter();
+
+    const code = await launch({
+      argv: ["add them", "--session", logPath, "--model", "m1", "--max-tokens", "42"],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    // Exit code: the turn completed.
+    expect(code).toBe(0);
+    // Printed output: the one-line formatResult summary (plus the trailing newline).
+    expect(cap.out).toBe(`completed turns=1 steps=2 log=${logPath}\n`);
+
+    // On-disk log: well-formed header, contiguous seq, the expected event types.
+    const { header, events } = readLog(logPath);
+    expect(header.id).toBe("session");
+    expect(header.version).toBe(0);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "tool/call",
+      "tool/result",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
+    // Contiguous seq: exactly 0..n-1 in order.
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    // The tool round-trip is recorded: the call names `add`, the result is "3".
+    const call = events.find((e) => e.type === "tool/call");
+    expect(call?.data.name).toBe("add");
+    const result = events.find((e) => e.type === "tool/result");
+    expect(result?.data.message.content).toBe("3");
+
+    // The adapter was driven with the threaded CallOptions on both steps.
+    expect(adapter.callOptions).toHaveLength(2);
+    for (const opts of adapter.callOptions) {
+      expect(opts?.model).toBe("m1");
+      expect(opts?.maxTokens).toBe(42);
+    }
+  });
+
+  it("(b) the same session with --json prints a parseable JSON summary and exits 0", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["add them", "--session", logPath, "--json"],
+      adapter: toolAdapter(),
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(cap.out);
+    expect(parsed).toEqual({
+      end: "completed",
+      turns: 1,
+      steps: 2,
+      logPath,
+    });
+    // The on-disk log is still written and well-formed.
+    const { events } = readLog(logPath);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("(c) an error turn (exhausted adapter) exits 1 and the log records turn/end reason error", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    // An empty script throws on the first complete() -> runTurn contains it
+    // into end: "error".
+    const throwing = new FakeLlmAdapter([]);
+
+    const code = await launch({
+      argv: ["boom", "--session", logPath],
+      adapter: throwing,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.out).toBe(`error turns=1 steps=1 log=${logPath}\n`);
+    expect(cap.err).toContain("error");
+    // The log still records the turn, ending with reason "error".
+    const { events } = readLog(logPath);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "turn/end",
+    ]);
+    const end = events.find((e) => e.type === "turn/end");
+    expect(end?.data.reason).toBe("error");
+  });
+
+  it("(d) resume: two launch calls yield contiguous seq across both turns and an unchanged header id", async () => {
+    const logPath = makeLogPath();
+    const { cap: cap1, stdout: s1, stderr: e1 } = makeStreams();
+    const { cap: cap2, stdout: s2, stderr: e2 } = makeStreams();
+
+    // First turn: a fresh session at the path, id "abc".
+    const code1 = await launch({
+      argv: ["hi", "--session", logPath, "--id", "abc"],
+      adapter: textAdapter("ok"),
+      tools: makeTools(),
+      stdout: s1,
+      stderr: e1,
+    });
+    expect(code1).toBe(0);
+    expect(cap1.out).toBe(`completed turns=1 steps=1 log=${logPath}\n`);
+
+    // Second turn: resume the same session.
+    const code2 = await launch({
+      argv: ["hi again", "--session", logPath, "--id", "abc", "--resume"],
+      adapter: textAdapter("ok again"),
+      tools: makeTools(),
+      stdout: s2,
+      stderr: e2,
+    });
+    expect(code2).toBe(0);
+    expect(cap2.out).toBe(`completed turns=1 steps=1 log=${logPath}\n`);
+
+    // The on-disk log has 8 events with contiguous seq across both turns,
+    // and the header id is unchanged.
+    const { header, events } = readLog(logPath);
+    expect(header.id).toBe("abc");
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
   });
 });
