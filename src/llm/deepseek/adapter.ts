@@ -103,18 +103,16 @@ export class DeepSeekLlmAdapter implements LlmAdapter {
   /** One model call, streamed as an async iterable ending in `StreamEnd`. */
   stream(messages: readonly Message[], opts?: CallOptions): LlmStream {
     const body = serializeRequest(messages, { ...opts, model: opts?.model ?? this.model });
-    const self = this;
-    return {
-      [Symbol.asyncIterator]() {
-        return (async function* (): AsyncGenerator<StreamChunk | StreamEnd> {
-          const response = await self.doFetch(body);
-          if (!response.body) {
-            throw new LlmFailure("DeepSeek API returned no response body", "stream_closed");
-          }
-          yield* translate(parseSse(response.body));
-        })();
-      },
-    };
+    return this.runStream(body);
+  }
+
+  /** The stream body: fetch, then translate the SSE stream. */
+  private async *runStream(body: WireRequest): AsyncGenerator<StreamChunk | StreamEnd> {
+    const response = await this.doFetch(body);
+    if (!response.body) {
+      throw new LlmFailure("DeepSeek API returned no response body", "stream_closed");
+    }
+    yield* translate(parseSse(response.body));
   }
 
   /** POST the request; map non-2xx responses to a structured {@link LlmFailure}. */
