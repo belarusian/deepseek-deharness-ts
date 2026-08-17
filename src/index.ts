@@ -107,3 +107,28 @@ export {
   FakeLlmAdapter,
   type ScriptedResponse,
 } from "./llm/index.js";
+
+// ── DeepSeek wire adapter (the concrete HTTP seam) ──────────────────────────
+// Re-exported so downstream modules (agent loop) compose the DeepSeek adapter
+// by direct import. The wire types, serializer, SSE parser, translator, and
+// adapter are all plain modules — no DI, no registration.
+
+export {
+  serializeMessages,
+  serializeRequest,
+  parseSse,
+  translate,
+  DeepSeekLlmAdapter,
+  DONE,
+  type WireMessage,
+  type WireToolCall,
+  type WireTool,
+  type WireRequest,
+  type WireChunk,
+  type WireChoice,
+  type WireDelta,
+  type WireToolCallDelta,
+  type WireUsage,
+  type WireError,
+  type DeepSeekAdapterConfig,
+} from "./llm/deepseek/index.js";
