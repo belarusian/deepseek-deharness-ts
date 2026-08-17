@@ -15,6 +15,8 @@ export type {
 
 export { ToolRegistry, DuplicateToolError } from "./registry.js";
 
+export { validateArgs, type ValidationResult } from "./schema.js";
+
 export {
   executeTool,
   toToolDefinition,

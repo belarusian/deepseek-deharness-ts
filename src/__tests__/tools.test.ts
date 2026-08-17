@@ -184,3 +184,104 @@ describe("executeTool (guarded pipeline)", () => {
     expect(block.isError).toBe(true);
   });
 });
+
+describe("executeTool (validate stage)", () => {
+  it("valid args pass through to execute (default validate: true)", async () => {
+    const order: string[] = [];
+    const tool: Tool = {
+      name: "search",
+      description: "d",
+      parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+      execute: async (args) => {
+        order.push("execute");
+        return { content: `ok:${JSON.stringify(args)}` };
+      },
+    };
+    const result = await executeTool(tool, { q: "x" });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toBe('ok:{"q":"x"}');
+    expect(order).toEqual(["execute"]);
+  });
+
+  it("invalid args short-circuit to isError WITHOUT calling execute or post", async () => {
+    const order: string[] = [];
+    const execute = vi.fn(async (): Promise<ToolResult> => ({ content: "nope" }));
+    const tool: Tool = {
+      name: "search",
+      description: "d",
+      parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+      execute,
+    };
+    const result = await executeTool(tool, { q: 5 }, {
+      post: async () => {
+        order.push("post");
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/invalid arguments/);
+    expect(result.content).toMatch(/expected string, got number/);
+    expect(execute).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+  });
+
+  it("validate:false skips validation (execute runs even on invalid args)", async () => {
+    const execute = vi.fn(async (): Promise<ToolResult> => ({ content: "ran" }));
+    const tool: Tool = {
+      name: "search",
+      description: "d",
+      parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+      execute,
+    };
+    const result = await executeTool(tool, { q: 5 }, { validate: false });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toBe("ran");
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("guard-false still precedes validation (guard wins first)", async () => {
+    const order: string[] = [];
+    const execute = vi.fn(async (): Promise<ToolResult> => ({ content: "nope" }));
+    const tool: Tool = {
+      name: "search",
+      description: "d",
+      parameters: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+      execute,
+    };
+    const result = await executeTool(tool, { q: 5 }, {
+      guard: async () => {
+        order.push("guard");
+        return false;
+      },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/blocked by guard/);
+    expect(execute).not.toHaveBeenCalled();
+    expect(order).toEqual(["guard"]);
+  });
+
+  it("stage order: pre -> guard -> validate -> execute -> post", async () => {
+    const order: string[] = [];
+    const tool: Tool = {
+      name: "search",
+      description: "d",
+      parameters: { type: "object", properties: { q: { type: "string" } } },
+      execute: async () => {
+        order.push("execute");
+        return { content: "ok" };
+      },
+    };
+    await executeTool(tool, { q: "x" }, {
+      pre: async () => {
+        order.push("pre");
+      },
+      guard: async () => {
+        order.push("guard");
+        return true;
+      },
+      post: async () => {
+        order.push("post");
+      },
+    });
+    expect(order).toEqual(["pre", "guard", "execute", "post"]);
+  });
+});

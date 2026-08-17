@@ -3,7 +3,7 @@
  *
  * `executeTool` runs a fixed, plain shape:
  *
- *   pre -> guard -> execute -> post -> result
+ *   pre -> guard -> validate -> execute -> post -> result
  *
  * - `pre` (optional) is a **void side-effect hook**; its return value is
  *   ignored.
@@ -11,6 +11,10 @@
  *   `isError` result WITHOUT calling `tool.execute`. This is the load-bearing
  *   hook: it lets a caller (the agent loop, cycles 10-13) veto a tool call —
  *   approval, rate-limit, capability check — before the body runs.
+ * - `validate` (default `true`) checks `args` against `tool.parameters`
+ *   with {@link validateArgs}; a schema failure short-circuits to an
+ *   `isError` result WITHOUT calling `tool.execute` (or `post`). Set
+ *   `validate: false` to skip the stage entirely.
  * - A pre-aborted `opts.signal` returns an `isError` result WITHOUT calling
  *   `tool.execute`.
  * - A throwing `tool.execute` is caught and turned into an `isError` result;
@@ -28,6 +32,7 @@
 import type { ToolDefinition, ToolResultBlock } from "../llm/index.js";
 import { toolResultBlock } from "../llm/index.js";
 import type { Tool, ToolResult } from "./types.js";
+import { validateArgs } from "./schema.js";
 
 /** Optional per-call hooks for {@link executeTool}. */
 export interface PipelineOptions {
@@ -42,6 +47,13 @@ export interface PipelineOptions {
    * continues.
    */
   guard?(tool: Tool, args: unknown): boolean | Promise<boolean>;
+  /**
+   * Whether to validate `args` against `tool.parameters` before `execute`
+   * (default `true`). A schema failure short-circuits to an `isError`
+   * result WITHOUT calling `tool.execute` or `post`. Set `false` to skip
+   * the stage entirely (execute runs regardless of schema).
+   */
+  validate?: boolean;
   /**
    * Runs after `execute` settles (success or caught failure). A void
    * side-effect hook: its return value is ignored.
@@ -96,6 +108,17 @@ export async function executeTool(
       content: `tool "${tool.name}" aborted before execution`,
       isError: true,
     };
+  }
+
+  // ── validate (schema conformance before the body runs) ─────────────────
+  if (opts?.validate !== false) {
+    const verdict = validateArgs(tool.parameters, args);
+    if (!verdict.ok) {
+      return {
+        content: `tool "${tool.name}" invalid arguments: ${verdict.errors.join(", ")}`,
+        isError: true,
+      };
+    }
   }
 
   // ── execute (a throwing body is contained into an isError result) ────────

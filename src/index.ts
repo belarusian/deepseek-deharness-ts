@@ -151,6 +151,8 @@ export {
   executeTool,
   toToolDefinition,
   toToolResultBlock,
+  validateArgs,
+  type ValidationResult,
   type JsonSchema,
   type Tool,
   type ToolResult,
