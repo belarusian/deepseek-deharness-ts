@@ -195,7 +195,12 @@ export {
 export {
   Program,
   main,
+  launch,
+  helpText,
+  versionText,
+  formatResult,
   type ProgramOptions,
   type ProgramResult,
   type CliOptions,
+  type LauncherOptions,
 } from "./program/index.js";
