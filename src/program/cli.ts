@@ -27,6 +27,7 @@ import {
 } from "../tools/index.js";
 import { Program } from "./program.js";
 import type { ProgramResult } from "./program.js";
+import type { AgentEvent } from "../agent/index.js";
 
 /** The options a caller may pass to {@link main}; all optional. */
 export interface CliOptions {
@@ -43,6 +44,7 @@ export interface CliOptions {
   readonly list?: boolean;
   readonly model?: string;
   readonly maxTokens?: number;
+  readonly onEvent?: (event: AgentEvent) => void;
 }
 
 /** The parsed shape of an `argv` array. */
@@ -179,6 +181,7 @@ export async function main(
     stream,
     clock,
     callOptions,
+    onEvent: opts?.onEvent,
   });
   if (resume) {
     await program.resume();

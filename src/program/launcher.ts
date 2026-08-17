@@ -23,6 +23,7 @@ import {
 } from "../tools/index.js";
 import { main } from "./cli.js";
 import type { ProgramResult } from "./program.js";
+import type { AgentEvent } from "../agent/index.js";
 
 /** The options a caller may pass to {@link launch}; all optional. */
 export interface LauncherOptions {
@@ -38,6 +39,8 @@ export interface LauncherOptions {
   readonly stdout?: { write(chunk: string): unknown };
   /** The stream diagnostics are written to. */
   readonly stderr?: { write(chunk: string): unknown };
+  /** The inner-spoke `AgentEvent` trajectory sink, threaded to the turn. */
+  readonly onEvent?: (event: AgentEvent) => void;
 }
 
 /** The stable `--help` block: a usage line plus the flag list. */
@@ -148,6 +151,7 @@ export async function launch(opts?: LauncherOptions): Promise<number> {
   const result = await main(argv, {
     adapter: opts?.adapter,
     tools: opts?.tools,
+    onEvent: opts?.onEvent,
   });
   const useJson = opts?.json === true || argv.includes("--json");
   stdout.write((useJson ? formatResultJson(result) : formatResult(result)) + "\n");
