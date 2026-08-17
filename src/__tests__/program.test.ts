@@ -183,6 +183,62 @@ describe("on-disk Program (four-algebra composition)", () => {
     const lastCall = recording.calls[recording.calls.length - 1];
     expect(lastCall.map((m) => m.role)).toEqual(["assistant", "tool", "user"]);
   });
+
+  it("(d) callOptions drives the adapter: model + maxTokens reach the adapter call (tools projection wins)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("hi")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    tools.add(addTool);
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sess-d",
+      logPath,
+      callOptions: { model: "m1", maxTokens: 42 },
+      clock: () => T0,
+    });
+
+    const res = await program.run("hello");
+    expect(res.result.end).toBe("completed");
+
+    // The adapter was called with the caller's model/maxTokens, and the loop's
+    // projected tools (the authoritative tool list for the turn).
+    const last = adapter.lastCallOptions;
+    expect(last).toBeDefined();
+    expect(last?.model).toBe("m1");
+    expect(last?.maxTokens).toBe(42);
+    expect(last?.tools).toHaveLength(1);
+    expect(last?.tools?.[0]?.name).toBe("add");
+  });
+
+  it("(e) no callOptions drives the adapter with {tools} only (default path unchanged)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("hi")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    tools.add(addTool);
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sess-e",
+      logPath,
+      clock: () => T0,
+    });
+
+    const res = await program.run("hello");
+    expect(res.result.end).toBe("completed");
+
+    // No model/maxTokens threaded; the call still carries the projected tools.
+    const last = adapter.lastCallOptions;
+    expect(last).toBeDefined();
+    expect(last?.model).toBeUndefined();
+    expect(last?.maxTokens).toBeUndefined();
+    expect(last?.tools).toHaveLength(1);
+    expect(last?.tools?.[0]?.name).toBe("add");
+  });
 });
 
 describe("on-PATH program CLI", () => {
@@ -248,5 +304,58 @@ describe("on-PATH program CLI", () => {
     const { events } = readLog(logPath);
     expect(events).toHaveLength(8);
     expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+  it("(g) --model + --max-tokens are parsed and reach the adapter", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("ok")], "stop") },
+    ]);
+
+    const res = await main(
+      ["hi", "--model", "m1", "--max-tokens", "42", "--session", logPath],
+      { adapter },
+    );
+    expect(res.result.end).toBe("completed");
+
+    const last = adapter.lastCallOptions;
+    expect(last).toBeDefined();
+    expect(last?.model).toBe("m1");
+    expect(last?.maxTokens).toBe(42);
+  });
+
+  it("(h) no flags -> no callOptions (default path unchanged)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("ok")], "stop") },
+    ]);
+
+    const res = await main(["hi", "--session", logPath], { adapter });
+    expect(res.result.end).toBe("completed");
+
+    // The adapter was still called (with the projected tools), but with no
+    // model/maxTokens threaded — the default path is unchanged.
+    const last = adapter.lastCallOptions;
+    expect(last).toBeDefined();
+    expect(last?.model).toBeUndefined();
+    expect(last?.maxTokens).toBeUndefined();
+  });
+
+  it("(i) opts.model / opts.maxTokens (no argv flags) reach the adapter", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("ok")], "stop") },
+    ]);
+
+    const res = await main(["hi", "--session", logPath], {
+      adapter,
+      model: "m2",
+      maxTokens: 7,
+    });
+    expect(res.result.end).toBe("completed");
+
+    const last = adapter.lastCallOptions;
+    expect(last).toBeDefined();
+    expect(last?.model).toBe("m2");
+    expect(last?.maxTokens).toBe(7);
   });
 });
