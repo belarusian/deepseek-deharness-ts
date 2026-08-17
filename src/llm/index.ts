@@ -48,3 +48,8 @@ export {
   FakeLlmAdapter,
   type ScriptedResponse,
 } from "./fake.js";
+
+export {
+  withRetry,
+  type RetryOptions,
+} from "./retry.js";

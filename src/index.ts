@@ -108,6 +108,11 @@ export {
   type ScriptedResponse,
 } from "./llm/index.js";
 
+export {
+  withRetry,
+  type RetryOptions,
+} from "./llm/index.js";
+
 // ── DeepSeek wire adapter (the concrete HTTP seam) ──────────────────────────
 // Re-exported so downstream modules (agent loop) compose the DeepSeek adapter
 // by direct import. The wire types, serializer, SSE parser, translator, and
