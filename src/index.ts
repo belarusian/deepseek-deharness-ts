@@ -57,3 +57,53 @@ export {
   type HeaderLine,
   type DeserializedLog,
 } from "./session/store.js";
+
+// ── LLM seam (the provider-neutral message/stream/adapter vocabulary) ──────
+// Re-exported so downstream modules (session, agent loop) compose the LLM
+// vocabulary by direct import. `AssistantMessage` is intentionally NOT
+// re-exported here: the session module already exports a same-named (but
+// distinct) `AssistantMessage`, and the LLM one is available via
+// `import { AssistantMessage } from "./llm/index.js"`.
+
+export {
+  textBlock,
+  toolCallBlock,
+  toolResultBlock,
+  message,
+  assistantMessage,
+  type Role,
+  type TextBlock,
+  type ToolCallBlock,
+  type ToolResultBlock,
+  type ContentBlock,
+  type Message,
+} from "./llm/index.js";
+
+export {
+  textDelta,
+  toolCallDelta,
+  usageInfo,
+  finishChunk,
+  streamEnd,
+  makeLlmStream,
+  type TextDelta,
+  type ToolCallDelta,
+  type UsageInfo,
+  type FinishChunk,
+  type StreamChunk,
+  type StreamUsage,
+  type StreamEnd,
+  type LlmStream,
+} from "./llm/index.js";
+
+export {
+  LlmFailure,
+  type ToolDefinition,
+  type CallOptions,
+  type LlmAdapter,
+} from "./llm/index.js";
+
+export {
+  FakeLlmAdapter,
+  type ScriptedResponse,
+} from "./llm/index.js";
