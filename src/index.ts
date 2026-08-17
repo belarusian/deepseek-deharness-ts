@@ -86,6 +86,7 @@ export {
   finishChunk,
   streamEnd,
   makeLlmStream,
+  assembleAssistant,
   type TextDelta,
   type ToolCallDelta,
   type UsageInfo,

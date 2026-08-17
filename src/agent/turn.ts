@@ -19,6 +19,7 @@
  */
 
 import {
+  assembleAssistant,
   message,
   textBlock,
   type AssistantMessage,
@@ -104,9 +105,15 @@ export async function runTurn(
     emit({ type: "step_start", turn: t, step });
 
     // ── one model step (adapter failures are contained, never thrown) ──────
+    // `opts.stream` selects the path: `true` folds `adapter.stream` into an
+    // AssistantMessage via `assembleAssistant`; `false` (default) uses the
+    // single assembled `adapter.complete`. Both live in the same try/catch so
+    // a throw from either is contained into `end: "error"`.
     let assistant: AssistantMessage;
     try {
-      assistant = await opts.adapter.complete(transcript, { tools });
+      assistant = opts.stream
+        ? await assembleAssistant(opts.adapter.stream(transcript, { tools }))
+        : await opts.adapter.complete(transcript, { tools });
     } catch {
       end = "error";
       break;

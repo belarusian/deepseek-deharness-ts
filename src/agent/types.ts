@@ -26,12 +26,20 @@ export type TurnEndReason = "completed" | "max_steps" | "aborted" | "error";
  * dispatches tool calls against. `system` is an optional system prompt,
  * `maxSteps` caps the per-turn step budget (default 10), `signal` is the
  * caller's cancellation token, and `onEvent` is the trajectory observer.
+ *
+ * `stream` (default `false`) selects how each model step is driven:
+ * `false` uses `adapter.complete` (a single assembled `AssistantMessage`);
+ * `true` drives the step via `adapter.stream` + `assembleAssistant` (folding
+ * the `LlmStream` of `StreamChunk`s into an `AssistantMessage`). The loop
+ * logic (abort / step budget / completed / tool dispatch) is unchanged
+ * either way.
  */
 export interface AgentOptions {
   readonly adapter: LlmAdapter;
   readonly tools: ToolRegistry;
   readonly system?: string;
   readonly maxSteps?: number;
+  readonly stream?: boolean;
   readonly signal?: AbortSignal;
   readonly onEvent?: (event: AgentEvent) => void;
 }

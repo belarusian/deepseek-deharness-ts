@@ -37,6 +37,8 @@ export {
   type LlmStream,
 } from "./stream.js";
 
+export { assembleAssistant } from "./assemble.js";
+
 export {
   LlmFailure,
   type ToolDefinition,
