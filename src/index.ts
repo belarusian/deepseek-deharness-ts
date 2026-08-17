@@ -199,6 +199,8 @@ export {
   helpText,
   versionText,
   formatResult,
+  formatResultJson,
+  formatToolList,
   type ProgramOptions,
   type ProgramResult,
   type CliOptions,

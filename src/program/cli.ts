@@ -38,6 +38,8 @@ export interface CliOptions {
   readonly stream?: boolean;
   readonly clock?: () => number;
   readonly resume?: boolean;
+  readonly json?: boolean;
+  readonly list?: boolean;
 }
 
 /** The parsed shape of an `argv` array. */
@@ -49,13 +51,16 @@ interface ParsedArgv {
   readonly stream: boolean;
   readonly maxSteps: number | undefined;
   readonly system: string | undefined;
+  readonly json: boolean;
+  readonly list: boolean;
 }
 
 /**
  * Parse `argv`: the first non-flag token is the user text; `--session <path>`
  * sets `logPath`; `--id <id>` sets `sessionId`; `--resume` sets `resume`;
  * `--stream` sets `stream`; `--max-steps <n>` sets `maxSteps`; `--system
- * <text>` sets `system`.
+ * <text>` sets `system`; `--json` sets `json`; `--list` sets `list` (both
+ * no-value flags, so they are never swallowed as user text).
  */
 function parseArgv(argv: readonly string[]): ParsedArgv {
   let userText: string | undefined;
@@ -65,6 +70,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
   let stream = false;
   let maxSteps: number | undefined;
   let system: string | undefined;
+  let json = false;
+  let list = false;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -80,13 +87,27 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
       maxSteps = Number(argv[++i]);
     } else if (token === "--system") {
       system = argv[++i];
+    } else if (token === "--json") {
+      json = true;
+    } else if (token === "--list") {
+      list = true;
     } else if (userText === undefined) {
       userText = token;
     }
     // A non-flag token after the user text is ignored.
   }
 
-  return { userText, sessionId, logPath, resume, stream, maxSteps, system };
+  return {
+    userText,
+    sessionId,
+    logPath,
+    resume,
+    stream,
+    maxSteps,
+    system,
+    json,
+    list,
+  };
 }
 
 /** The default adapter: a `FakeLlmAdapter` scripted to one text turn. */

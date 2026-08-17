@@ -15,7 +15,12 @@
  */
 
 import type { LlmAdapter } from "../llm/index.js";
-import type { ToolRegistry } from "../tools/index.js";
+import {
+  ToolRegistry,
+  echoTool,
+  addTool,
+  failTool,
+} from "../tools/index.js";
 import { main } from "./cli.js";
 import type { ProgramResult } from "./program.js";
 
@@ -27,6 +32,8 @@ export interface LauncherOptions {
   readonly adapter?: LlmAdapter;
   /** The tool registry the turn dispatches against; defaults to the built-ins. */
   readonly tools?: ToolRegistry;
+  /** When `true`, the turn summary is printed as JSON (see {@link formatResultJson}). */
+  readonly json?: boolean;
   /** The stream `--help`/`--version`/result lines are written to. */
   readonly stdout?: { write(chunk: string): unknown };
   /** The stream diagnostics are written to. */
@@ -45,6 +52,8 @@ export function helpText(): string {
     "  --stream           drive model steps via the streaming seam",
     "  --max-steps <n>    cap the per-turn step budget",
     "  --system <text>    an optional system prompt",
+    "  --json             print the turn summary as JSON",
+    "  --list             list the registered tools and exit",
     "  --help, -h         show this help",
     "  --version, -v      show the version",
   ].join("\n");
@@ -66,13 +75,57 @@ export function formatResult(result: ProgramResult): string {
 }
 
 /**
- * The process entrypoint. Parse `argv`, and either print help/version (return
- * 0, no turn, no log) or run one turn via {@link main}, print the
- * {@link formatResult} summary, and return the exit code: `0` when the turn
- * ended `completed` or `max_steps`, else `1`.
+ * A **pure, deterministic** JSON summary of a settled turn.
  *
- * `--help`/`--version` are intercepted BEFORE `main`. The exit code is driven
- * by `result.end`, not by a throw. No `process.exit` — the code is returned.
+ * The object literal is written with a fixed key order (`end`, `turns`,
+ * `steps`, `logPath`) so the serialized string is stable for identical inputs.
+ * `end`/`turns`/`steps` come from `result.result`; `logPath` from
+ * `result.logPath`.
+ */
+export function formatResultJson(result: ProgramResult): string {
+  const { end, turns, steps } = result.result;
+  return JSON.stringify({
+    end,
+    turns,
+    steps,
+    logPath: result.logPath,
+  });
+}
+
+/**
+ * A **pure, deterministic** listing of the tools in a registry: one line per
+ * tool, in `tools.names()` insertion order, each rendered as
+ * `<name> — <description>`, joined by a newline.
+ */
+export function formatToolList(tools: ToolRegistry): string {
+  return tools
+    .names()
+    .map((name) => {
+      const tool = tools.get(name);
+      return `${name} — ${tool?.description ?? ""}`;
+    })
+    .join("\n");
+}
+
+/** The default tools: the built-ins (`echo`, `add`, `fail`). */
+function defaultTools(): ToolRegistry {
+  const tools = new ToolRegistry();
+  tools.add(echoTool);
+  tools.add(addTool);
+  tools.add(failTool);
+  return tools;
+}
+
+/**
+ * The process entrypoint. Parse `argv`, and either print help/version (return
+ * 0, no turn, no log), list the registered tools (return 0, no turn, no log),
+ * or run one turn via {@link main}, print the {@link formatResult} (or
+ * {@link formatResultJson}) summary, and return the exit code: `0` when the
+ * turn ended `completed` or `max_steps`, else `1`.
+ *
+ * `--help`/`--version` are intercepted BEFORE `main`; `--list` is intercepted
+ * AFTER them and BEFORE `main`. The exit code is driven by `result.end`, not
+ * by a throw. No `process.exit` — the code is returned.
  */
 export async function launch(opts?: LauncherOptions): Promise<number> {
   const argv = opts?.argv ?? process.argv.slice(2);
@@ -87,12 +140,17 @@ export async function launch(opts?: LauncherOptions): Promise<number> {
     stdout.write(versionText() + "\n");
     return 0;
   }
+  if (argv.includes("--list")) {
+    stdout.write(formatToolList(opts?.tools ?? defaultTools()) + "\n");
+    return 0;
+  }
 
   const result = await main(argv, {
     adapter: opts?.adapter,
     tools: opts?.tools,
   });
-  stdout.write(formatResult(result) + "\n");
+  const useJson = opts?.json === true || argv.includes("--json");
+  stdout.write((useJson ? formatResultJson(result) : formatResult(result)) + "\n");
   if (result.result.end === "completed" || result.result.end === "max_steps") {
     return 0;
   }

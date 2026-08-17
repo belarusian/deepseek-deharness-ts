@@ -16,9 +16,13 @@ import {
   helpText,
   versionText,
   formatResult,
+  formatResultJson,
+  formatToolList,
   FakeLlmAdapter,
   ToolRegistry,
+  echoTool,
   addTool,
+  failTool,
   assistantMessage,
   textBlock,
   readLog,
@@ -185,5 +189,133 @@ describe("process-level launcher", () => {
     expect(existsSync(logPath)).toBe(true);
     const { header } = readLog(logPath);
     expect(header.id).toBe("abc");
+  });
+
+  it("(g) --json prints a parseable JSON summary and exits 0", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["hello", "--session", logPath, "--json"],
+      adapter: textAdapter("hi there"),
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(cap.out);
+    expect(parsed.end).toBe("completed");
+    expect(parsed.turns).toBe(1);
+    expect(parsed.steps).toBe(1);
+    expect(parsed.logPath).toBe(logPath);
+    expect(existsSync(logPath)).toBe(true);
+  });
+
+  it("(h) --json on an error turn exits 1 and the JSON reflects the error end", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const throwing = new FakeLlmAdapter([]);
+
+    const code = await launch({
+      argv: ["boom", "--session", logPath, "--json"],
+      adapter: throwing,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.out);
+    expect(parsed.end).toBe("error");
+    expect(parsed.logPath).toBe(logPath);
+    expect(cap.err).toContain("error");
+    expect(existsSync(logPath)).toBe(true);
+  });
+
+  it("(i) --list prints the registered tools and exits 0, writing no log", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deharness-launcher-list-"));
+    dirs.push(dir);
+    const { cap, stdout, stderr } = makeStreams();
+
+    const tools = new ToolRegistry();
+    tools.add(echoTool);
+    tools.add(addTool);
+
+    const code = await launch({
+      argv: ["--list"],
+      tools,
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    // Each tool appears as `<name> — <description>`, in names() insertion order.
+    const lines = cap.out.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(`${echoTool.name} — ${echoTool.description}`);
+    expect(lines[1]).toBe(`${addTool.name} — ${addTool.description}`);
+    expect(cap.out).toContain(echoTool.name);
+    expect(cap.out).toContain(echoTool.description);
+    expect(cap.out).toContain(addTool.name);
+    expect(cap.out).toContain(addTool.description);
+    // No turn ran, so no log was written into the temp dir.
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+
+  it("(j) --list with no opts.tools prints the built-ins (echo/add/fail)", async () => {
+    const { cap, stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["--list"],
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    const lines = cap.out.trim().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(`${echoTool.name} — ${echoTool.description}`);
+    expect(lines[1]).toBe(`${addTool.name} — ${addTool.description}`);
+    expect(lines[2]).toBe(`${failTool.name} — ${failTool.description}`);
+  });
+
+  it("(k) formatResultJson is pure: identical inputs -> identical strings, JSON.parse yields the fields", () => {
+    const mk = (logPath: string): ProgramResult => ({
+      result: { messages: [], turns: 2, steps: 3, end: "max_steps" },
+      logPath,
+      log: new SessionLog("k"),
+    });
+
+    const a = mk("/tmp/y.jsonl");
+    const b = mk("/tmp/y.jsonl");
+
+    expect(formatResultJson(a)).toBe(formatResultJson(b));
+    const parsed = JSON.parse(formatResultJson(a));
+    expect(parsed).toEqual({
+      end: "max_steps",
+      turns: 2,
+      steps: 3,
+      logPath: "/tmp/y.jsonl",
+    });
+    // Stable key order: end, turns, steps, logPath.
+    expect(formatResultJson(a)).toBe(
+      JSON.stringify({ end: "max_steps", turns: 2, steps: 3, logPath: "/tmp/y.jsonl" }),
+    );
+  });
+
+  it("(k2) formatToolList is pure and renders names() order with descriptions", () => {
+    const tools = new ToolRegistry();
+    tools.add(echoTool);
+    tools.add(addTool);
+
+    const out = formatToolList(tools);
+    expect(out).toBe(
+      [
+        `${echoTool.name} — ${echoTool.description}`,
+        `${addTool.name} — ${addTool.description}`,
+      ].join("\n"),
+    );
+    expect(out).toBe(formatToolList(tools));
   });
 });
