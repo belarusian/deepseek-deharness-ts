@@ -167,3 +167,18 @@ export {
   addTool,
   failTool,
 } from "./tools/index.js";
+
+// ── Agent loop (the inner spoke: work + trajectory) ────────────────────────
+// Re-exported so downstream modules compose the loop and its vocabulary by
+// direct import. `AssistantMessage` is intentionally NOT re-exported here: the
+// session module already exports a same-named (but distinct) `AssistantMessage`,
+// and the LLM one is available via `import { AssistantMessage } from
+// "./llm/index.js"`.
+
+export {
+  runAgent,
+  type AgentOptions,
+  type AgentEvent,
+  type TurnEndReason,
+  type AgentResult,
+} from "./agent/index.js";
