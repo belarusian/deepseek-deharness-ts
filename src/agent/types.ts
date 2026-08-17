@@ -15,6 +15,7 @@ import type {
   LlmAdapter,
 } from "../llm/index.js";
 import type { ToolRegistry } from "../tools/index.js";
+import type { SessionLog } from "../session/log.js";
 
 /** Why a turn stopped. */
 export type TurnEndReason = "completed" | "max_steps" | "aborted" | "error";
@@ -33,6 +34,10 @@ export type TurnEndReason = "completed" | "max_steps" | "aborted" | "error";
  * the `LlmStream` of `StreamChunk`s into an `AssistantMessage`). The loop
  * logic (abort / step budget / completed / tool dispatch) is unchanged
  * either way.
+ *
+ * `log` (optional) is the durable session log the loop folds its trajectory
+ * into: each emitted `AgentEvent` is mapped via `toSessionEvent` and appended
+ * to the log. When absent, the loop emits only to `onEvent` (if any).
  */
 export interface AgentOptions {
   readonly adapter: LlmAdapter;
@@ -42,6 +47,7 @@ export interface AgentOptions {
   readonly stream?: boolean;
   readonly signal?: AbortSignal;
   readonly onEvent?: (event: AgentEvent) => void;
+  readonly log?: SessionLog;
 }
 
 /**

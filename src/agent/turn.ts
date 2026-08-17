@@ -33,6 +33,7 @@ import {
   type ToolResult,
 } from "../tools/index.js";
 import type { AgentEvent, AgentOptions, TurnEndReason } from "./types.js";
+import { toSessionEvent } from "./trajectory.js";
 
 /** The default per-turn step budget when `opts.maxSteps` is absent. */
 const DEFAULT_MAX_STEPS = 10;
@@ -80,6 +81,10 @@ export async function runTurn(
   const tools = opts.tools.all().map(toToolDefinition);
   const emit = (event: AgentEvent): void => {
     if (opts.onEvent) opts.onEvent(event);
+    if (opts.log) {
+      const m = toSessionEvent(event);
+      if (m) opts.log.append(m.type, m.data);
+    }
   };
 
   // ── append the user message (the caller owns the transcript) ─────────────
