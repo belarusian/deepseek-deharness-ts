@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   serializeMessages,
   serializeRequest,
@@ -7,7 +7,6 @@ import {
   DeepSeekLlmAdapter,
   DONE,
 } from "../index.js";
-import { LlmFailure } from "../index.js";
 import { textBlock, toolCallBlock, toolResultBlock, message } from "../index.js";
 import type { Message, CallOptions } from "../index.js";
 import type { StreamChunk, StreamEnd } from "../index.js";
@@ -59,7 +58,7 @@ function okSseFetch(body: string): typeof fetch {
     new Response(stream, {
       status: 200,
       headers: { "Content-Type": "text/event-stream" },
-    })) as unknown as typeof fetch;
+    })) as unknown as typeof globalThis.fetch;
 }
 
 // ── serializeMessages ───────────────────────────────────────────────────────
@@ -316,7 +315,7 @@ describe("translate", () => {
     const out: (StreamChunk | StreamEnd)[] = [];
     for await (const c of translate(payloads)) out.push(c);
     // three tool_call_delta chunks
-    const tcds = out.filter((c): c is StreamChunk => c.type === "tool_call_delta");
+    const tcds = out.filter((c): c is StreamChunk => "type" in c && c.type === "tool_call_delta");
     expect(tcds).toHaveLength(3);
     expect(tcds[0]).toEqual({ type: "tool_call_delta", id: "call_1", name: "get_", arguments: "" });
     expect(tcds[1]).toEqual({ type: "tool_call_delta", id: "", name: "", arguments: '{"ci' });
@@ -423,7 +422,7 @@ describe("DeepSeekLlmAdapter", () => {
     for await (const c of adapter.stream([message("user", [textBlock("Hi")])])) {
       out.push(c);
     }
-    const textDeltas = out.filter((c): c is StreamChunk => c.type === "text_delta");
+    const textDeltas = out.filter((c): c is StreamChunk => "type" in c && c.type === "text_delta");
     expect(textDeltas.map((c) => (c as { text: string }).text)).toEqual(["Y", "o"]);
     const end = out[out.length - 1];
     expect("finishReason" in end).toBe(true);
@@ -435,7 +434,7 @@ describe("DeepSeekLlmAdapter", () => {
       new Response(JSON.stringify({ error: { message: "Invalid API key" } }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
-      })) as unknown as typeof fetch;
+      })) as unknown as typeof globalThis.fetch;
     const adapter = new DeepSeekLlmAdapter({ apiKey: "bad", model: "m", fetch });
     await expect(
       adapter.complete([message("user", [textBlock("Hi")])]),
@@ -447,7 +446,7 @@ describe("DeepSeekLlmAdapter", () => {
       new Response(JSON.stringify({ error: { message: "Rate limited" } }), {
         status: 429,
         headers: { "Content-Type": "application/json", "retry-after": "5" },
-      })) as unknown as typeof fetch;
+      })) as unknown as typeof globalThis.fetch;
     const adapter = new DeepSeekLlmAdapter({ apiKey: "k", model: "m", fetch });
     await expect(
       adapter.complete([message("user", [textBlock("Hi")])]),
@@ -456,7 +455,7 @@ describe("DeepSeekLlmAdapter", () => {
 
   it("503 → overloaded", async () => {
     const fetch = (async () =>
-      new Response("Service Unavailable", { status: 503 })) as unknown as typeof fetch;
+      new Response("Service Unavailable", { status: 503 })) as unknown as typeof globalThis.fetch;
     const adapter = new DeepSeekLlmAdapter({ apiKey: "k", model: "m", fetch });
     await expect(
       adapter.complete([message("user", [textBlock("Hi")])]),
@@ -465,7 +464,7 @@ describe("DeepSeekLlmAdapter", () => {
 
   it("500 → http_500", async () => {
     const fetch = (async () =>
-      new Response("Internal Server Error", { status: 500 })) as unknown as typeof fetch;
+      new Response("Internal Server Error", { status: 500 })) as unknown as typeof globalThis.fetch;
     const adapter = new DeepSeekLlmAdapter({ apiKey: "k", model: "m", fetch });
     await expect(
       adapter.complete([message("user", [textBlock("Hi")])]),
@@ -473,7 +472,7 @@ describe("DeepSeekLlmAdapter", () => {
   });
 
   it("sends the bearer key and posts to /chat/completions", async () => {
-    const seen: { url: string; auth?: string } = {};
+    const seen: { url?: string; auth?: string } = {};
     const body = sseBody([{ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }]);
     const enc = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
@@ -486,7 +485,7 @@ describe("DeepSeekLlmAdapter", () => {
       seen.url = String(url);
       seen.auth = (init?.headers as Record<string, string>)?.["Authorization"];
       return new Response(stream, { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as unknown as typeof globalThis.fetch;
     const adapter = new DeepSeekLlmAdapter({
       apiKey: "secret",
       model: "deepseek-chat",
