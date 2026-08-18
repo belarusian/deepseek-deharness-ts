@@ -101,6 +101,7 @@ export class Program {
   readonly #callOptions: CallOptions | undefined;
   readonly #onEvent: ((event: AgentEvent) => void) | undefined;
   readonly logPath: string;
+  readonly sessionId: string;
   #log: SessionLog;
   #opts: AgentOptions;
   #transcript: Message[];
@@ -116,6 +117,7 @@ export class Program {
     this.#callOptions = opts.callOptions;
     this.#onEvent = opts.onEvent;
     this.logPath = opts.logPath;
+    this.sessionId = opts.sessionId;
     this.#log = new SessionLog(opts.sessionId, { clock: this.#clock });
     this.#opts = this.#buildOpts();
     this.#transcript = this.#buildTranscript();
