@@ -22,6 +22,8 @@ The first non-flag token is the user text. Flags may appear in any order.
 | `--max-steps <n>` | cap the per-turn step budget | `10` |
 | `--model <name>` | the model name threaded to the adapter call | *(none)* |
 | `--max-tokens <n>` | the max-tokens cap threaded to the adapter call | *(none)* |
+| `--api-key <key>` | the provider key threaded to the adapter seam | `DEEPSEEK_API_KEY` env |
+| `--base-url <url>` | the provider endpoint base threaded to the adapter seam | *(adapter default)* |
 | `--system <text>` | an optional system prompt | *(none)* |
 | `--json` | print the turn summary as JSON | `false` |
 | `--list` | list the registered tools and exit | `false` |
@@ -35,6 +37,21 @@ driven programmatically (via `main(argv, opts)` or `launch(opts)`), a value
 present in `argv` wins over the same value in `opts`, which wins over the
 built-in default. For example, `--session` in `argv` overrides `opts.logPath`,
 which overrides `.deepseek/session.jsonl`.
+
+## Adapter selection
+
+The turn is driven by the adapter {@link selectAdapter} picks, in this order:
+
+1. An explicitly injected `adapter` (via `main(argv, { adapter })` or
+   `launch({ adapter })`) always wins — this is the deterministic test path.
+2. Otherwise, when a key resolves (`--api-key` > `opts.apiKey` > `DEEPSEEK_API_KEY`),
+   a real `DeepSeekLlmAdapter` is composed, defaulting the model to
+   `deepseek-chat` and the base URL to the adapter's own default when `--base-url`
+   is absent.
+3. Otherwise the deterministic `FakeLlmAdapter` is used — the no-network default.
+
+Precedence for the key: `--api-key` > `DEEPSEEK_API_KEY`. Precedence for the
+endpoint: `--base-url` > adapter default base URL.
 
 ## Short-circuits
 

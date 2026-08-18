@@ -41,6 +41,10 @@ export interface LauncherOptions {
   readonly stderr?: { write(chunk: string): unknown };
   /** The inner-spoke `AgentEvent` trajectory sink, threaded to the turn. */
   readonly onEvent?: (event: AgentEvent) => void;
+  /** The provider key threaded to the adapter seam (TICKET-087). */
+  readonly apiKey?: string;
+  /** The provider endpoint base threaded to the adapter seam (TICKET-087). */
+  readonly baseURL?: string;
 }
 
 /** The stable `--help` block: a usage line plus the flag list. */
@@ -56,6 +60,8 @@ export function helpText(): string {
     "  --max-steps <n>    cap the per-turn step budget",
     "  --model <name>     the model name threaded to the adapter call",
     "  --max-tokens <n>   the max-tokens cap threaded to the adapter call",
+    "  --api-key <key>    the provider key (falls back to DEEPSEEK_API_KEY)",
+    "  --base-url <url>   the provider endpoint base (adapter default if absent)",
     "  --system <text>    an optional system prompt",
     "  --json             print the turn summary as JSON",
     "  --list             list the registered tools and exit",
@@ -154,6 +160,8 @@ export async function launch(opts?: LauncherOptions): Promise<number> {
     adapter: opts?.adapter,
     tools: opts?.tools,
     onEvent: opts?.onEvent,
+    apiKey: opts?.apiKey,
+    baseURL: opts?.baseURL,
   });
   const useJson = opts?.json === true || argv.includes("--json");
   stdout.write((useJson ? formatResultJson(result) : formatResult(result)) + "\n");

@@ -7,7 +7,7 @@
 
 export { Program } from "./program.js";
 export type { ProgramOptions, ProgramResult } from "./program.js";
-export { main } from "./cli.js";
+export { main, selectAdapter } from "./cli.js";
 export type { CliOptions } from "./cli.js";
 export {
   launch,

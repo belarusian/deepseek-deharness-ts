@@ -195,6 +195,7 @@ export {
 export {
   Program,
   main,
+  selectAdapter,
   launch,
   helpText,
   versionText,

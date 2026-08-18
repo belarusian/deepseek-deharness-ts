@@ -7,9 +7,11 @@
  * composes a {@link Program}, and returns the `ProgramResult`. No
  * `process.exit`, no `console.log` — a real launcher would print the result.
  *
- * Deterministic and dependency-free: when `opts` omits the adapter, the CLI
- * defaults to a `FakeLlmAdapter` scripted to a single text turn (no network),
- * and the built-in tools.
+ * Deterministic and dependency-free by default: when no adapter is injected and
+ * no API key resolves, the CLI defaults to a `FakeLlmAdapter` scripted to a
+ * single text turn (no network). When a key resolves (flag, `opts`, or
+ * `DEEPSEEK_API_KEY`), {@link selectAdapter} composes a real
+ * `DeepSeekLlmAdapter` instead (TICKET-086).
  */
 
 import {
@@ -19,6 +21,7 @@ import {
   type LlmAdapter,
   type CallOptions,
 } from "../llm/index.js";
+import { DeepSeekLlmAdapter } from "../llm/deepseek/index.js";
 import {
   ToolRegistry,
   echoTool,
@@ -44,6 +47,8 @@ export interface CliOptions {
   readonly list?: boolean;
   readonly model?: string;
   readonly maxTokens?: number;
+  readonly apiKey?: string;
+  readonly baseURL?: string;
   readonly onEvent?: (event: AgentEvent) => void;
 }
 
@@ -60,6 +65,8 @@ interface ParsedArgv {
   readonly list: boolean;
   readonly model: string | undefined;
   readonly maxTokens: number | undefined;
+  readonly apiKey: string | undefined;
+  readonly baseURL: string | undefined;
 }
 
 /**
@@ -68,7 +75,8 @@ interface ParsedArgv {
  * `--stream` sets `stream`; `--max-steps <n>` sets `maxSteps`; `--system
  * <text>` sets `system`; `--json` sets `json`; `--list` sets `list` (both
  * no-value flags, so they are never swallowed as user text); `--model <name>`
- * sets `model`; `--max-tokens <n>` sets `maxTokens` (both value flags, like
+ * sets `model`; `--max-tokens <n>` sets `maxTokens`; `--api-key <key>` sets
+ * `apiKey`; `--base-url <url>` sets `baseURL` (all value flags, like
  * `--max-steps`).
  */
 function parseArgv(argv: readonly string[]): ParsedArgv {
@@ -83,6 +91,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
   let list = false;
   let model: string | undefined;
   let maxTokens: number | undefined;
+  let apiKey: string | undefined;
+  let baseURL: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -106,6 +116,10 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
       model = argv[++i];
     } else if (token === "--max-tokens") {
       maxTokens = Number(argv[++i]);
+    } else if (token === "--api-key") {
+      apiKey = argv[++i];
+    } else if (token === "--base-url") {
+      baseURL = argv[++i];
     } else if (userText === undefined) {
       userText = token;
     }
@@ -124,6 +138,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
     list,
     model,
     maxTokens,
+    apiKey,
+    baseURL,
   };
 }
 
@@ -132,6 +148,37 @@ function defaultAdapter(): LlmAdapter {
   return new FakeLlmAdapter([
     { message: assistantMessage([textBlock("ok")], "stop") },
   ]);
+}
+
+/**
+ * The **provider-wiring seam** (TICKET-086): pick the adapter a turn is driven
+ * with.
+ *
+ * Precedence: an explicitly injected `adapter` always wins (preserving the
+ * deterministic test path). Otherwise, when `apiKey` is a non-empty string, a
+ * real {@link DeepSeekLlmAdapter} is composed (defaulting the model to
+ * `deepseek-chat` and the base URL to the adapter's own default when `baseURL`
+ * is absent). Otherwise the deterministic {@link defaultAdapter} fake is
+ * returned — the no-network default.
+ *
+ * Pure: no I/O and no `process.env` read (the caller resolves the key and
+ * passes it in), so the selection is fully testable.
+ */
+export function selectAdapter(
+  explicit: LlmAdapter | undefined,
+  apiKey: string | undefined,
+  baseURL: string | undefined,
+  model: string | undefined,
+): LlmAdapter {
+  if (explicit !== undefined) return explicit;
+  if (typeof apiKey === "string" && apiKey.length > 0) {
+    return new DeepSeekLlmAdapter({
+      apiKey,
+      model: model ?? "deepseek-chat",
+      baseURL,
+    });
+  }
+  return defaultAdapter();
 }
 
 /** The default tools: the built-ins (`echo`, `add`, `fail`). */
@@ -160,12 +207,14 @@ export async function main(
   const stream = parsed.stream || opts?.stream === true;
   const maxSteps = parsed.maxSteps ?? opts?.maxSteps;
   const system = parsed.system ?? opts?.system;
-  const adapter = opts?.adapter ?? defaultAdapter();
   const tools = opts?.tools ?? defaultTools();
   const clock = opts?.clock ?? (() => 0);
 
   const model = parsed.model ?? opts?.model;
   const maxTokens = parsed.maxTokens ?? opts?.maxTokens;
+  const apiKey = parsed.apiKey ?? opts?.apiKey ?? process.env.DEEPSEEK_API_KEY;
+  const baseURL = parsed.baseURL ?? opts?.baseURL;
+  const adapter = selectAdapter(opts?.adapter, apiKey, baseURL, model);
   const callOptions: CallOptions | undefined =
     model !== undefined || maxTokens !== undefined
       ? { model, maxTokens }
