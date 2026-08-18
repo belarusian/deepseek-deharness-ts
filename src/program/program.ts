@@ -31,6 +31,7 @@ import type { SessionEvent } from "../session/event.js";
 import { readLog, writeLog } from "../session/store.js";
 import { runTurn } from "../agent/turn.js";
 import type { AgentOptions, AgentResult } from "../agent/types.js";
+import type { AgentEvent } from "../agent/index.js";
 
 /** The options that compose one on-disk {@link Program}. */
 export interface ProgramOptions {
@@ -43,6 +44,7 @@ export interface ProgramOptions {
   readonly stream?: boolean;
   readonly clock?: () => number;
   readonly callOptions?: CallOptions;
+  readonly onEvent?: (event: AgentEvent) => void;
 }
 
 /** The settled outcome of one {@link Program.run} call. */
@@ -91,6 +93,7 @@ export class Program {
   readonly #stream: boolean | undefined;
   readonly #clock: (() => number) | undefined;
   readonly #callOptions: CallOptions | undefined;
+  readonly #onEvent: ((event: AgentEvent) => void) | undefined;
   readonly logPath: string;
   #log: SessionLog;
   #opts: AgentOptions;
@@ -104,6 +107,7 @@ export class Program {
     this.#stream = opts.stream;
     this.#clock = opts.clock;
     this.#callOptions = opts.callOptions;
+    this.#onEvent = opts.onEvent;
     this.logPath = opts.logPath;
     this.#log = new SessionLog(opts.sessionId, { clock: this.#clock });
     this.#opts = this.#buildOpts();
@@ -125,6 +129,7 @@ export class Program {
       stream: this.#stream,
       log: this.#log,
       callOptions: this.#callOptions,
+      onEvent: this.#onEvent,
     };
   }
 
