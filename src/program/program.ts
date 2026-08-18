@@ -126,6 +126,11 @@ export class Program {
     return this.#log;
   }
 
+  /** The number of turns completed (cumulative across `run()` calls). */
+  get turns(): number {
+    return this.#turnCount;
+  }
+
   /** Build the `AgentOptions` the shared core is driven with. */
   #buildOpts(): AgentOptions {
     return {

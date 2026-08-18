@@ -614,3 +614,94 @@ describe("Program multi-turn (in-memory)", () => {
     expect(roles.filter((r) => r === "system")).toHaveLength(1);
   });
 });
+
+describe("Program.turns getter", () => {
+  it("(a) fresh Program reports turns === 0 (before any run)", () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "tg-a",
+      logPath,
+      clock: () => T0,
+    });
+
+    // No run() yet: the cumulative turn count is 0.
+    expect(program.turns).toBe(0);
+  });
+
+  it("(b) turns increments per run: 1 after the first, 2 after the second", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "tg-b",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    expect(program.turns).toBe(1);
+    await program.run("second");
+    expect(program.turns).toBe(2);
+  });
+
+  it("(c) turns survives resume and continues: run -> resume -> run => 2", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "tg-c",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    expect(program.turns).toBe(1);
+    // resume() resets the count from the seed's turn/start count (1), not to 0.
+    await program.resume();
+    expect(program.turns).toBe(1);
+    await program.run("second");
+    // The next run is the second trajectory turn.
+    expect(program.turns).toBe(2);
+  });
+
+  it("(d) turns matches result.turns after each run (Conversation parity)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "tg-d",
+      logPath,
+      clock: () => T0,
+    });
+
+    const first = await program.run("first");
+    expect(program.turns).toBe(first.result.turns);
+    const second = await program.run("second");
+    expect(program.turns).toBe(second.result.turns);
+    // Both agree and are cumulative.
+    expect(program.turns).toBe(2);
+    expect(first.result.turns).toBe(1);
+    expect(second.result.turns).toBe(2);
+  });
+});
