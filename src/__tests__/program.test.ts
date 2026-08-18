@@ -705,3 +705,94 @@ describe("Program.turns getter", () => {
     expect(second.result.turns).toBe(2);
   });
 });
+
+describe("Program.sessionId", () => {
+  it("(a) sessionId is exposed as constructed (before any run)", () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sid-a",
+      logPath,
+      clock: () => T0,
+    });
+
+    // No run() yet: the identity is the constructed option, directly readable.
+    expect(program.sessionId).toBe("sid-a");
+  });
+
+  it("(b) sessionId matches the log header id (field and durable log agree)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sid-b",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    // The public field and the durable log's header agree on identity.
+    expect(program.sessionId).toBe(program.log.header.id);
+    expect(program.sessionId).toBe("sid-b");
+  });
+
+  it("(c) sessionId is stable across run and resume (identity, not trajectory state)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sid-c",
+      logPath,
+      clock: () => T0,
+    });
+
+    expect(program.sessionId).toBe("sid-c");
+    await program.run("first");
+    // Unchanged by run (unlike turns, which increments).
+    expect(program.sessionId).toBe("sid-c");
+    // resume() resets the turn count from the seed, but the identity is a
+    // readonly field and is untouched.
+    await program.resume();
+    expect(program.sessionId).toBe("sid-c");
+    // Still in agreement with the reloaded log's header.
+    expect(program.sessionId).toBe(program.log.header.id);
+  });
+
+  it("(d) sessionId survives run -> resume -> run with the same value", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sid-d",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    await program.resume();
+    await program.run("second");
+    // The log header id is preserved across the reload, so the field and the
+    // log stay in agreement, and the identity is unchanged end to end.
+    expect(program.sessionId).toBe("sid-d");
+    expect(program.sessionId).toBe(program.log.header.id);
+  });
+});
