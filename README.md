@@ -152,7 +152,8 @@ You do not have to go through the CLI. The public API (re-exported from
   durable log), runs turns, persists the log, and can `resume()`. It is also a
   true in-memory multi-turn driver: consecutive `run()` calls accumulate the
   transcript in place (so turn N+1 sees turn N's messages), `turns` is
-  cumulative, and `history()` returns a copy of the accumulated transcript.
+  cumulative and exposed as a public getter, and `history()` returns a copy
+  of the accumulated transcript.
 
 All three accept an additive **`onEvent`** trajectory sink:
 
