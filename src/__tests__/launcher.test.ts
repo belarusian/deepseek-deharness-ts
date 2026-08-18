@@ -32,6 +32,7 @@ import {
   type ProgramResult,
   type AgentEvent,
   type LlmAdapter,
+  type Message,
 } from "../index.js";
 
 /** Temp dirs created by the tests, cleaned up in `afterEach`. */
@@ -775,5 +776,290 @@ describe("--temperature seam", () => {
     expect(code).toBe(0);
     expect(cap.out).toContain("completed");
     expect(adapter.lastCallOptions?.temperature).toBe(0.2);
+  });
+});
+
+/**
+ * **The `launch` passthrough seam** (TICKET-095..097) — the on-PATH launcher
+ * documents a full flag set in `helpText()` and `main`'s `parseArgv` parses and
+ * honors all of them, but `launch` previously forwarded only
+ * `adapter`/`tools`/`onEvent`/`apiKey`/`baseURL`/`temperature` to `main`. This
+ * block proves the documented flag surface is now honored end-to-end: each flag
+ * is threaded, the `opts`-only fallback (no matching argv flag) is honored, an
+ * argv flag wins over `opts`, and the no-`opts` path is byte-for-byte unchanged.
+ *
+ * Deterministic and offline: an injected `FakeLlmAdapter` (records
+ * `lastCallOptions`) + injectable `stdout`/`stderr` + a temp `logPath`. No
+ * network, no real `process` streams.
+ */
+describe("launch passthrough", () => {
+  /**
+   * A recording wrapper around an inner adapter: records the `Message[]` each
+   * call is driven with (so a test can assert the system prompt reached the
+   * model) and delegates to the inner adapter for the scripted response.
+   */
+  function recordingAdapter(inner: FakeLlmAdapter): {
+    adapter: LlmAdapter;
+    /** The inner fake, so a test can assert the recorded `lastCallOptions`. */
+    inner: FakeLlmAdapter;
+    /** The `Message[]` the most recent call was driven with (or `undefined`). */
+    messages(): readonly Message[] | undefined;
+  } {
+    let lastMessages: readonly Message[] | undefined;
+    const adapter: LlmAdapter = {
+      complete: async (messages, opts) => {
+        lastMessages = messages;
+        return inner.complete(messages, opts);
+      },
+      stream: (messages, opts) => {
+        lastMessages = messages;
+        return inner.stream(messages, opts);
+      },
+    };
+    return { adapter, inner, messages: () => lastMessages };
+  }
+
+  it("--system is threaded: the system prompt reaches the model", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const { adapter, messages } = recordingAdapter(textAdapter("ok"));
+
+    const code = await launch({
+      argv: ["hi", "--system", "be brief", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out).toContain("completed");
+    // The system prompt is the leading message of the transcript.
+    const lastMessages = messages();
+    expect(lastMessages?.[0]?.role).toBe("system");
+    const sys = lastMessages?.[0];
+    const text = sys?.blocks.find((b) => b.type === "text");
+    expect(text?.type === "text" ? text.text : undefined).toBe("be brief");
+  });
+
+  it("--session is threaded: the durable log is written at the given path", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["hi", "--session", logPath],
+      adapter: textAdapter("ok"),
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(logPath)).toBe(true);
+    const { events } = readLog(logPath);
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.map((e) => e.type)).toContain("turn/end");
+  });
+
+  it("--id is threaded: the log header carries the given session id", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["hi", "--id", "sess-42", "--session", logPath],
+      adapter: textAdapter("ok"),
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    const { header } = readLog(logPath);
+    expect(header.id).toBe("sess-42");
+  });
+
+  it("--resume is threaded: the resumed log contains the prior turn plus the new one", async () => {
+    const logPath = makeLogPath();
+    const { stdout: s1, stderr: e1 } = makeStreams();
+    const { cap: cap2, stdout: s2, stderr: e2 } = makeStreams();
+
+    // Seed a prior turn at the path.
+    const code1 = await launch({
+      argv: ["first", "--session", logPath],
+      adapter: textAdapter("one"),
+      tools: makeTools(),
+      stdout: s1,
+      stderr: e1,
+    });
+    expect(code1).toBe(0);
+    const before = readLog(logPath).events.length;
+
+    // Resume and add a new turn.
+    const code2 = await launch({
+      argv: ["again", "--resume", "--session", logPath],
+      adapter: textAdapter("two"),
+      tools: makeTools(),
+      stdout: s2,
+      stderr: e2,
+    });
+    expect(code2).toBe(0);
+    expect(cap2.out).toContain("completed");
+
+    const { events } = readLog(logPath);
+    // The log grew: the prior turn is still present and the new turn was appended.
+    expect(events.length).toBeGreaterThan(before);
+    // Two turn/end events: one per turn.
+    expect(events.filter((e) => e.type === "turn/end")).toHaveLength(2);
+  });
+
+  it("--stream is threaded: the streaming seam is exercised and the turn settles completed", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const inner = textAdapter("hello from stream");
+    const calls: string[] = [];
+    const adapter: LlmAdapter = {
+      complete: async (m, o) => {
+        calls.push("complete");
+        return inner.complete(m, o);
+      },
+      stream: (m, o) => {
+        calls.push("stream");
+        return inner.stream(m, o);
+      },
+    };
+
+    const code = await launch({
+      argv: ["hi", "--stream", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out).toContain("completed");
+    // The streaming seam was used, not the single-shot complete.
+    expect(calls).toEqual(["stream"]);
+  });
+
+  it("--max-steps is threaded: the step budget caps the turn at end: max_steps", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    // A tool round-trip needs two steps; a budget of 1 caps it at max_steps.
+    const adapter = new FakeLlmAdapter([
+      {
+        message: assistantMessage(
+          [toolCallBlock("call_1", "add", '{"a":1,"b":2}')],
+          "tool_calls",
+        ),
+      },
+      { message: assistantMessage([textBlock("the sum is 3")], "stop") },
+    ]);
+
+    const code = await launch({
+      argv: ["add them", "--max-steps", "1", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out).toContain("max_steps");
+    const { events } = readLog(logPath);
+    expect(events.filter((e) => e.type === "step/start")).toHaveLength(1);
+    const end = events.find((e) => e.type === "turn/end");
+    expect(end?.data.reason).toBe("max_steps");
+  });
+
+  it("--model / --max-tokens are threaded into callOptions", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const adapter = textAdapter("ok");
+
+    const code = await launch({
+      argv: ["hi", "--model", "m", "--max-tokens", "64", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(adapter.lastCallOptions?.model).toBe("m");
+    expect(adapter.lastCallOptions?.maxTokens).toBe(64);
+  });
+
+  it("opts fallback (no matching argv flag): the opts-only path is honored", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const { adapter, inner, messages } = recordingAdapter(textAdapter("ok"));
+
+    const code = await launch({
+      argv: ["hi", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+      system: "be brief",
+      model: "m",
+      maxTokens: 32,
+      maxSteps: 2,
+      stream: true,
+      resume: false,
+      sessionId: "sess-7",
+    });
+
+    expect(code).toBe(0);
+    // callOptions threaded from opts (asserted on the inner fake the wrapper delegates to).
+    expect(inner.lastCallOptions?.model).toBe("m");
+    expect(inner.lastCallOptions?.maxTokens).toBe(32);
+    // The log session id comes from opts.sessionId.
+    const { header } = readLog(logPath);
+    expect(header.id).toBe("sess-7");
+    // The system prompt from opts reached the model.
+    const sys = messages()?.[0];
+    const text = sys?.blocks.find((b) => b.type === "text");
+    expect(text?.type === "text" ? text.text : undefined).toBe("be brief");
+  });
+
+  it("argv flag wins over opts: --model flag beats opts.model", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const adapter = textAdapter("ok");
+
+    const code = await launch({
+      argv: ["hi", "--model", "flag-model", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+      model: "opts-model",
+    });
+
+    expect(code).toBe(0);
+    expect(adapter.lastCallOptions?.model).toBe("flag-model");
+  });
+
+  it("no-opts regression: with no new opts fields, none of model/maxTokens/temperature is threaded", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const adapter = textAdapter("ok");
+
+    const code = await launch({
+      argv: ["hi", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    // The agent always injects the tool projection into the recorded CallOptions,
+    // so the object is present — but none of the three option fields is set,
+    // proving the additive change does not alter the default path.
+    expect(adapter.lastCallOptions?.model).toBeUndefined();
+    expect(adapter.lastCallOptions?.maxTokens).toBeUndefined();
+    expect(adapter.lastCallOptions?.temperature).toBeUndefined();
   });
 });

@@ -47,6 +47,22 @@ export interface LauncherOptions {
   readonly baseURL?: string;
   /** The sampling temperature threaded to the adapter call (TICKET-092). */
   readonly temperature?: number;
+  /** The session id stamped in the log header (TICKET-095). */
+  readonly sessionId?: string;
+  /** The path of the durable session log (TICKET-095). */
+  readonly logPath?: string;
+  /** When `true`, resume the existing log at `logPath` (TICKET-095). */
+  readonly resume?: boolean;
+  /** When `true`, drive model steps via the streaming seam (TICKET-095). */
+  readonly stream?: boolean;
+  /** The per-turn step budget cap (TICKET-095). */
+  readonly maxSteps?: number;
+  /** An optional system prompt (TICKET-095). */
+  readonly system?: string;
+  /** The model name threaded to the adapter call (TICKET-095). */
+  readonly model?: string;
+  /** The max-tokens cap threaded to the adapter call (TICKET-095). */
+  readonly maxTokens?: number;
 }
 
 /** The stable `--help` block: a usage line plus the flag list. */
@@ -166,6 +182,14 @@ export async function launch(opts?: LauncherOptions): Promise<number> {
     apiKey: opts?.apiKey,
     baseURL: opts?.baseURL,
     temperature: opts?.temperature,
+    sessionId: opts?.sessionId,
+    logPath: opts?.logPath,
+    resume: opts?.resume,
+    stream: opts?.stream,
+    maxSteps: opts?.maxSteps,
+    system: opts?.system,
+    model: opts?.model,
+    maxTokens: opts?.maxTokens,
   });
   const useJson = opts?.json === true || argv.includes("--json");
   stdout.write((useJson ? formatResultJson(result) : formatResult(result)) + "\n");
