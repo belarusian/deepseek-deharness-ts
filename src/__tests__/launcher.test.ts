@@ -29,6 +29,8 @@ import {
   readLog,
   SessionLog,
   type ProgramResult,
+  type AgentEvent,
+  type LlmAdapter,
 } from "../index.js";
 
 /** Temp dirs created by the tests, cleaned up in `afterEach`. */
@@ -495,4 +497,166 @@ describe("E2E program run", () => {
       "turn/end",
     ]);
   });
+  it("(e) an onEvent sink captures the inner-spoke AgentEvent stream and the log agrees", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const events: AgentEvent[] = [];
+
+    const code = await launch({
+      argv: ["add them", "--session", logPath],
+      adapter: toolAdapter(),
+      tools: makeTools(),
+      stdout,
+      stderr,
+      onEvent: (e) => {
+        events.push(e);
+      },
+    });
+
+    expect(code).toBe(0);
+    // Inner spoke: exactly the 8 AgentEvents of a tool round-trip.
+    expect(events.map((e) => e.type)).toEqual([
+      "turn_start",
+      "step_start",
+      "assistant",
+      "tool_call",
+      "tool_result",
+      "step_start",
+      "assistant",
+      "turn_end",
+    ]);
+    // Every event carries turn 1.
+    for (const e of events) expect(e.turn).toBe(1);
+    // The two step_start events are step 1 then step 2.
+    const stepStarts = events.filter(
+      (e): e is Extract<AgentEvent, { type: "step_start" }> => e.type === "step_start",
+    );
+    expect(stepStarts.map((e) => e.step)).toEqual([1, 2]);
+    // The tool_call names `add`.
+    const call = events.find(
+      (e): e is Extract<AgentEvent, { type: "tool_call" }> => e.type === "tool_call",
+    );
+    expect(call?.call.name).toBe("add");
+    // The turn ends completed.
+    const end = events.find(
+      (e): e is Extract<AgentEvent, { type: "turn_end" }> => e.type === "turn_end",
+    );
+    expect(end?.reason).toBe("completed");
+
+    // Outer spoke: the durable log still has the 8 contiguous SessionEvents.
+    const { events: logEvents } = readLog(logPath);
+    expect(logEvents.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "tool/call",
+      "tool/result",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
+    expect(logEvents.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("(f) --stream drives the adapter's stream seam (not complete) and logs the assembled message", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const inner = textAdapter("hello from stream");
+    const calls: string[] = [];
+    const adapter: LlmAdapter = {
+      complete: async (m, o) => {
+        calls.push("complete");
+        return inner.complete(m, o);
+      },
+      stream: (m, o) => {
+        calls.push("stream");
+        return inner.stream(m, o);
+      },
+    };
+
+    const code = await launch({
+      argv: ["hi", "--session", logPath, "--stream"],
+      adapter,
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out).toBe(`completed turns=1 steps=1 log=${logPath}\n`);
+    // The streaming seam was used, not the single-shot complete.
+    expect(calls).toEqual(["stream"]);
+    // The log records the assembled assistant message (content flattened from the stream).
+    const { events } = readLog(logPath);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
+    const msg = events.find((e) => e.type === "assistant/message");
+    expect(msg?.data.message.content).toBe("hello from stream");
+  });
+
+  it("(g) --max-steps 1 caps a tool round-trip at end: max_steps (clean, exit 0)", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+
+    const code = await launch({
+      argv: ["add them", "--session", logPath, "--max-steps", "1"],
+      adapter: toolAdapter(),
+      tools: makeTools(),
+      stdout,
+      stderr,
+    });
+
+    // The budget is a clean end, not an error.
+    expect(code).toBe(0);
+    expect(cap.out).toBe(`max_steps turns=1 steps=1 log=${logPath}\n`);
+    const { events } = readLog(logPath);
+    // Only one step ran: the second step/start is absent.
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "tool/call",
+      "tool/result",
+      "turn/end",
+    ]);
+    expect(events.filter((e) => e.type === "step/start")).toHaveLength(1);
+    const end = events.find((e) => e.type === "turn/end");
+    expect(end?.data.reason).toBe("max_steps");
+  });
+
+  it("(h) an exhausted adapter yields an error trajectory on both spokes", async () => {
+    const logPath = makeLogPath();
+    const { stdout, stderr } = makeStreams();
+    const events: AgentEvent[] = [];
+    const throwing = new FakeLlmAdapter([]);
+
+    const code = await launch({
+      argv: ["boom", "--session", logPath],
+      adapter: throwing,
+      tools: makeTools(),
+      stdout,
+      stderr,
+      onEvent: (e) => {
+        events.push(e);
+      },
+    });
+
+    expect(code).toBe(1);
+    // Inner spoke: the AgentEvent stream is turn_start, step_start, turn_end(error).
+    expect(events.map((e) => e.type)).toEqual(["turn_start", "step_start", "turn_end"]);
+    const end = events.find(
+      (e): e is Extract<AgentEvent, { type: "turn_end" }> => e.type === "turn_end",
+    );
+    expect(end?.reason).toBe("error");
+    // Outer spoke: the durable log agrees.
+    const { events: logEvents } = readLog(logPath);
+    expect(logEvents.map((e) => e.type)).toEqual(["turn/start", "step/start", "turn/end"]);
+    const logEnd = logEvents.find((e) => e.type === "turn/end");
+    expect(logEnd?.data.reason).toBe("error");
+  });
+
 });

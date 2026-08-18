@@ -23,6 +23,7 @@ import {
   SESSION_FORMAT_VERSION,
   type LlmAdapter,
   type Message,
+  type AgentEvent,
   type CallOptions,
   type LlmStream,
 } from "../index.js";
@@ -239,6 +240,67 @@ describe("on-disk Program (four-algebra composition)", () => {
     expect(last?.tools).toHaveLength(1);
     expect(last?.tools?.[0]?.name).toBe("add");
   });
+  it("(f) onEvent emits the AgentEvent stream to the sink (inner spoke)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("hi there")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const events: AgentEvent[] = [];
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sess-on",
+      logPath,
+      clock: () => T0,
+      onEvent: (e) => {
+        events.push(e);
+      },
+    });
+
+    const res = await program.run("hello");
+    expect(res.result.end).toBe("completed");
+    // The sink received the inner-spoke AgentEvent stream, in order.
+    expect(events.map((e) => e.type)).toEqual([
+      "turn_start",
+      "step_start",
+      "assistant",
+      "turn_end",
+    ]);
+    expect(events.every((e) => e.turn === 1)).toBe(true);
+    const end = events.find(
+      (e): e is Extract<AgentEvent, { type: "turn_end" }> => e.type === "turn_end",
+    );
+    expect(end?.reason).toBe("completed");
+  });
+
+  it("(g) no onEvent leaves the sink absent (default path unchanged)", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("hi there")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "sess-no",
+      logPath,
+      clock: () => T0,
+    });
+
+    const res = await program.run("hello");
+    expect(res.result.end).toBe("completed");
+    // The log is still written and well-formed (the outer spoke is unaffected).
+    const { events } = readLog(logPath);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+  });
+
 });
 
 describe("on-PATH program CLI", () => {
