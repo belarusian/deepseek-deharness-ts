@@ -45,6 +45,8 @@ export interface LauncherOptions {
   readonly apiKey?: string;
   /** The provider endpoint base threaded to the adapter seam (TICKET-087). */
   readonly baseURL?: string;
+  /** The sampling temperature threaded to the adapter call (TICKET-092). */
+  readonly temperature?: number;
 }
 
 /** The stable `--help` block: a usage line plus the flag list. */
@@ -60,6 +62,7 @@ export function helpText(): string {
     "  --max-steps <n>    cap the per-turn step budget",
     "  --model <name>     the model name threaded to the adapter call",
     "  --max-tokens <n>   the max-tokens cap threaded to the adapter call",
+    "  --temperature <n>  the sampling temperature threaded to the adapter call",
     "  --api-key <key>    the provider key (falls back to DEEPSEEK_API_KEY)",
     "  --base-url <url>   the provider endpoint base (adapter default if absent)",
     "  --system <text>    an optional system prompt",
@@ -162,6 +165,7 @@ export async function launch(opts?: LauncherOptions): Promise<number> {
     onEvent: opts?.onEvent,
     apiKey: opts?.apiKey,
     baseURL: opts?.baseURL,
+    temperature: opts?.temperature,
   });
   const useJson = opts?.json === true || argv.includes("--json");
   stdout.write((useJson ? formatResultJson(result) : formatResult(result)) + "\n");

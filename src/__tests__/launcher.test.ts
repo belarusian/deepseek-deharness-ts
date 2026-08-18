@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  main,
   launch,
   helpText,
   versionText,
@@ -659,4 +660,120 @@ describe("E2E program run", () => {
     expect(logEnd?.data.reason).toBe("error");
   });
 
+});
+
+/**
+ * **The `--temperature` seam** (TICKET-090..093) — the sampling temperature is
+ * a first-class `CallOptions` member and is already serialized by the DeepSeek
+ * adapter; this cycle exposes it on the on-PATH CLI.
+ *
+ * Deterministic and offline: an injected `FakeLlmAdapter` records the
+ * `CallOptions` a turn is driven with (`lastCallOptions`), so the passthrough is
+ * asserted without any network. The no-flag path is asserted to keep
+ * `callOptions === undefined` (byte-for-byte the same as before the flag).
+ */
+describe("--temperature seam", () => {
+  it("parseArgv picks up --temperature <n> as a number value flag (not swallowed as user text)", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    const res = await main(["hi", "--temperature", "0.3", "--session", logPath], {
+      adapter,
+      tools: makeTools(),
+    });
+
+    expect(res.result.end).toBe("completed");
+    // The flag was consumed as a value flag: the adapter was driven with
+    // temperature 0.3 (and the user text "hi" was not swallowed).
+    expect(adapter.lastCallOptions?.temperature).toBe(0.3);
+  });
+
+  it("main threads temperature into callOptions", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    await main(["hi", "--temperature", "0.3", "--session", logPath], {
+      adapter,
+      tools: makeTools(),
+    });
+
+    expect(adapter.lastCallOptions?.temperature).toBe(0.3);
+  });
+
+  it("main threads temperature alongside model and maxTokens", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    await main(
+      ["hi", "--model", "m", "--max-tokens", "64", "--temperature", "0.5", "--session", logPath],
+      { adapter, tools: makeTools() },
+    );
+
+    expect(adapter.lastCallOptions?.model).toBe("m");
+    expect(adapter.lastCallOptions?.maxTokens).toBe(64);
+    expect(adapter.lastCallOptions?.temperature).toBe(0.5);
+  });
+
+  it("no-flag regression: with no model/maxTokens/temperature, none of the three is threaded", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    await main(["hi", "--session", logPath], { adapter, tools: makeTools() });
+
+    // The agent always injects the tool projection into the recorded CallOptions,
+    // so the object is present — but none of the three option fields is set,
+    // proving the no-flag path is unchanged by the new flag.
+    expect(adapter.lastCallOptions?.model).toBeUndefined();
+    expect(adapter.lastCallOptions?.maxTokens).toBeUndefined();
+    expect(adapter.lastCallOptions?.temperature).toBeUndefined();
+  });
+
+  it("opts.temperature is used as a fallback when no flag is given", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    await main(["hi", "--session", logPath], {
+      adapter,
+      tools: makeTools(),
+      temperature: 0.7,
+    });
+
+    expect(adapter.lastCallOptions?.temperature).toBe(0.7);
+  });
+
+  it("the --temperature flag wins over opts.temperature", async () => {
+    const logPath = makeLogPath();
+    const adapter = textAdapter("ok");
+
+    await main(["hi", "--temperature", "0.1", "--session", logPath], {
+      adapter,
+      tools: makeTools(),
+      temperature: 0.9,
+    });
+
+    expect(adapter.lastCallOptions?.temperature).toBe(0.1);
+  });
+
+  it("helpText documents --temperature <n>", () => {
+    expect(helpText()).toContain("--temperature <n>");
+  });
+
+  it("launch threads temperature into main (exit 0, adapter driven with it)", async () => {
+    const logPath = makeLogPath();
+    const { cap, stdout, stderr } = makeStreams();
+    const adapter = textAdapter("ok");
+
+    const code = await launch({
+      argv: ["hi", "--session", logPath],
+      adapter,
+      tools: makeTools(),
+      temperature: 0.2,
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out).toContain("completed");
+    expect(adapter.lastCallOptions?.temperature).toBe(0.2);
+  });
 });

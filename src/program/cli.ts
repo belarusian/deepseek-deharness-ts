@@ -47,6 +47,7 @@ export interface CliOptions {
   readonly list?: boolean;
   readonly model?: string;
   readonly maxTokens?: number;
+  readonly temperature?: number;
   readonly apiKey?: string;
   readonly baseURL?: string;
   readonly onEvent?: (event: AgentEvent) => void;
@@ -65,6 +66,7 @@ interface ParsedArgv {
   readonly list: boolean;
   readonly model: string | undefined;
   readonly maxTokens: number | undefined;
+  readonly temperature: number | undefined;
   readonly apiKey: string | undefined;
   readonly baseURL: string | undefined;
 }
@@ -75,9 +77,9 @@ interface ParsedArgv {
  * `--stream` sets `stream`; `--max-steps <n>` sets `maxSteps`; `--system
  * <text>` sets `system`; `--json` sets `json`; `--list` sets `list` (both
  * no-value flags, so they are never swallowed as user text); `--model <name>`
- * sets `model`; `--max-tokens <n>` sets `maxTokens`; `--api-key <key>` sets
- * `apiKey`; `--base-url <url>` sets `baseURL` (all value flags, like
- * `--max-steps`).
+ * sets `model`; `--max-tokens <n>` sets `maxTokens`; `--temperature <n>`
+ * sets `temperature`; `--api-key <key>` sets `apiKey`; `--base-url <url>`
+ * sets `baseURL` (all value flags, like `--max-steps`).
  */
 function parseArgv(argv: readonly string[]): ParsedArgv {
   let userText: string | undefined;
@@ -91,6 +93,7 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
   let list = false;
   let model: string | undefined;
   let maxTokens: number | undefined;
+  let temperature: number | undefined;
   let apiKey: string | undefined;
   let baseURL: string | undefined;
 
@@ -116,6 +119,8 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
       model = argv[++i];
     } else if (token === "--max-tokens") {
       maxTokens = Number(argv[++i]);
+    } else if (token === "--temperature") {
+      temperature = Number(argv[++i]);
     } else if (token === "--api-key") {
       apiKey = argv[++i];
     } else if (token === "--base-url") {
@@ -138,6 +143,7 @@ function parseArgv(argv: readonly string[]): ParsedArgv {
     list,
     model,
     maxTokens,
+    temperature,
     apiKey,
     baseURL,
   };
@@ -212,12 +218,13 @@ export async function main(
 
   const model = parsed.model ?? opts?.model;
   const maxTokens = parsed.maxTokens ?? opts?.maxTokens;
+  const temperature = parsed.temperature ?? opts?.temperature;
   const apiKey = parsed.apiKey ?? opts?.apiKey ?? process.env.DEEPSEEK_API_KEY;
   const baseURL = parsed.baseURL ?? opts?.baseURL;
   const adapter = selectAdapter(opts?.adapter, apiKey, baseURL, model);
   const callOptions: CallOptions | undefined =
-    model !== undefined || maxTokens !== undefined
-      ? { model, maxTokens }
+    model !== undefined || maxTokens !== undefined || temperature !== undefined
+      ? { model, maxTokens, temperature }
       : undefined;
 
   const program = new Program({

@@ -99,6 +99,9 @@ deepseek "and now subtract 1" --session ./session.jsonl --resume
 | `--max-steps <n>` | cap the per-turn step budget | `10` |
 | `--model <name>` | the model name threaded to the adapter call | *(none)* |
 | `--max-tokens <n>` | the max-tokens cap threaded to the adapter call | *(none)* |
+| `--temperature <n>` | the sampling temperature threaded to the adapter call | *(none)* |
+| `--api-key <key>` | the provider key threaded to the adapter seam | `DEEPSEEK_API_KEY` env |
+| `--base-url <url>` | the provider endpoint base threaded to the adapter seam | *(adapter default)* |
 | `--system <text>` | an optional system prompt | *(none)* |
 | `--json` | print the turn summary as JSON | `false` |
 | `--list` | list the registered tools and exit | `false` |
@@ -106,6 +109,8 @@ deepseek "and now subtract 1" --session ./session.jsonl --resume
 | `--version`, `-v` | show the version | — |
 
 The first non-flag token is the user text.
+
+A real `DeepSeekLlmAdapter` is selected when an API key is present (`--api-key` or `DEEPSEEK_API_KEY`); the deterministic fake is used otherwise.
 
 ## Output formats
 
