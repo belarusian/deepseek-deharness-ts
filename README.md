@@ -149,7 +149,10 @@ You do not have to go through the CLI. The public API (re-exported from
 - `main(argv, opts?)` — the pure CLI: parse `argv`, compose a `Program`, run one
   turn, return a `ProgramResult`. No printing, no exit code.
 - `new Program(opts)` — the on-disk Program: owns one session (adapter, tools,
-  durable log), runs turns, persists the log, and can `resume()`.
+  durable log), runs turns, persists the log, and can `resume()`. It is also a
+  true in-memory multi-turn driver: consecutive `run()` calls accumulate the
+  transcript in place (so turn N+1 sees turn N's messages), `turns` is
+  cumulative, and `history()` returns a copy of the accumulated transcript.
 
 All three accept an additive **`onEvent`** trajectory sink:
 

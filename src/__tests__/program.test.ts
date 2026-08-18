@@ -421,3 +421,196 @@ describe("on-PATH program CLI", () => {
     expect(last?.maxTokens).toBe(7);
   });
 });
+
+describe("Program multi-turn (in-memory)", () => {
+  it("(a) consecutive run accumulates context: second turn sees the first turn's messages", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-a",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    await program.run("second");
+
+    // The accumulated transcript: user(first), assistant(one), user(second),
+    // assistant(two) — the second turn saw the first turn's messages.
+    expect(program.history().map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+  });
+
+  it("(b) turns is cumulative: 1 after the first run, 2 after the second", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-b",
+      logPath,
+      clock: () => T0,
+    });
+
+    const first = await program.run("first");
+    expect(first.result.turns).toBe(1);
+    const second = await program.run("second");
+    expect(second.result.turns).toBe(2);
+  });
+
+  it("(c) history() returns a copy: mutating it does not affect the Program", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-c",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    const snapshot = program.history();
+    expect(snapshot).toHaveLength(2);
+    (snapshot as Message[]).push(
+      { role: "user", content: "injected" } as unknown as Message,
+    );
+    // The persistent transcript is unaffected by the mutation.
+    expect(program.history()).toHaveLength(2);
+  });
+
+  it("(d) single-turn regression: turns===1, roles [system, user, assistant], log written", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("hi")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-d",
+      logPath,
+      system: "be brief",
+      clock: () => T0,
+    });
+
+    const res = await program.run("hello");
+    expect(res.result.turns).toBe(1);
+    expect(res.result.end).toBe("completed");
+    expect(program.history().map((m) => m.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+    ]);
+    expect(existsSync(logPath)).toBe(true);
+    const { events } = readLog(logPath);
+    expect(events.map((e) => e.type)).toEqual([
+      "turn/start",
+      "step/start",
+      "assistant/message",
+      "turn/end",
+    ]);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("(e) resume after in-memory accumulation: contiguous seq, second turn carries turn index 2", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-e",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    await program.resume();
+    await program.run("second");
+
+    const { events } = readLog(logPath);
+    expect(events).toHaveLength(8);
+    expect(events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    // The second turn's trajectory events carry turn index 2, not 1.
+    const secondTurnStart = events[4];
+    expect(secondTurnStart.type).toBe("turn/start");
+    if (secondTurnStart.type === "turn/start") {
+      expect(secondTurnStart.data.turn).toBe(2);
+    }
+  });
+
+  it("(f) resume resets the turn count: a fresh run after resume is turn 2", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-f",
+      logPath,
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    await program.resume();
+    const res = await program.run("second");
+    // resume() set turnCount from the seed (one turn/start), so this run is
+    // the second trajectory turn.
+    expect(res.result.turns).toBe(2);
+  });
+
+  it("(g) system prompt persists across in-memory turns: exactly one leading system", async () => {
+    const logPath = makeLogPath();
+    const adapter = new FakeLlmAdapter([
+      { message: assistantMessage([textBlock("one")], "stop") },
+      { message: assistantMessage([textBlock("two")], "stop") },
+    ]);
+    const tools = new ToolRegistry();
+    const program = new Program({
+      adapter,
+      tools,
+      sessionId: "mt-g",
+      logPath,
+      system: "be brief",
+      clock: () => T0,
+    });
+
+    await program.run("first");
+    await program.run("second");
+
+    const roles = program.history().map((m) => m.role);
+    expect(roles).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    // Exactly one leading system message (not one per turn).
+    expect(roles.filter((r) => r === "system")).toHaveLength(1);
+  });
+});
