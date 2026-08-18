@@ -6,6 +6,12 @@
  * the log, **persists the log to disk after every turn**, and can **resume**
  * an existing on-disk log.
  *
+ * It is also a **true in-memory multi-turn driver**: `run()` accumulates the
+ * transcript in place (mirroring the inner-spoke `Conversation.send`), so a
+ * second `run()` on the same `Program` sees the first turn's messages. The
+ * cumulative turn count is tracked and `history()` exposes a copy of the
+ * accumulated transcript. `resume()` remains the durable (on-disk) path.
+ *
  * The loop is NOT forked: `run()` delegates to the shared step/turn core
  * (`runTurn`, in `../agent/turn.js`) — the exact same core `runAgent` uses.
  * The Program only adds the durable-log ownership and the on-disk persistence
@@ -98,6 +104,7 @@ export class Program {
   #log: SessionLog;
   #opts: AgentOptions;
   #transcript: Message[];
+  #turnCount = 0;
 
   constructor(opts: ProgramOptions) {
     this.#adapter = opts.adapter;
@@ -154,13 +161,40 @@ export class Program {
   /**
    * Drive one turn through the shared core, persist the log to disk, and
    * return the settled result.
+   *
+   * The turn is driven on the **persistent** `#transcript` in place (mirroring
+   * `Conversation.send`), so a second `run()` on the same `Program` sees the
+   * first turn's messages. `turn` is the cumulative trajectory turn index
+   * (1 for a fresh single-turn `run`, unchanged from before). `messages` in the
+   * returned `AgentResult` is a **copy** — the persistent transcript stays
+   * private.
    */
   async run(userText: string): Promise<ProgramResult> {
-    const transcript: Message[] = [...this.#transcript];
-    const { steps, end } = await runTurn(transcript, this.#opts, userText);
-    const result: AgentResult = { messages: transcript, turns: 1, steps, end };
+    const turn = this.#turnCount + 1;
+    const { steps, end } = await runTurn(
+      this.#transcript,
+      this.#opts,
+      userText,
+      turn,
+    );
+    this.#turnCount = turn;
+    const result: AgentResult = {
+      messages: [...this.#transcript],
+      turns: this.#turnCount,
+      steps,
+      end,
+    };
     writeLog(this.logPath, this.#log);
     return { result, logPath: this.logPath, log: this.#log };
+  }
+
+  /**
+   * A copy of the current accumulated transcript. Mutating the returned array
+   * does not affect the Program (the persistent `#transcript` is private),
+   * mirroring `Conversation.history()`.
+   */
+  history(): readonly Message[] {
+    return [...this.#transcript];
   }
 
   /**
@@ -179,6 +213,9 @@ export class Program {
     });
     this.#opts = this.#buildOpts();
     this.#transcript = this.#buildTranscript(events);
+    // Reset the trajectory turn index to the seed's turn count (the number of
+    // turn/start events) so the next run() continues with the correct index.
+    this.#turnCount = events.filter((e) => e.type === "turn/start").length;
     return this;
   }
 }

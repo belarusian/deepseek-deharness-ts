@@ -481,7 +481,9 @@ describe("E2E program run", () => {
       stderr: e2,
     });
     expect(code2).toBe(0);
-    expect(cap2.out).toBe(`completed turns=1 steps=1 log=${logPath}\n`);
+    // The resumed run is the second trajectory turn, so the cumulative
+    // turn count is 2 (the in-memory multi-turn driver tracks turns).
+    expect(cap2.out).toBe(`completed turns=2 steps=1 log=${logPath}\n`);
 
     // The on-disk log has 8 events with contiguous seq across both turns,
     // and the header id is unchanged.
