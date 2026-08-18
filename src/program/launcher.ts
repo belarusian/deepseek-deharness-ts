@@ -54,6 +54,8 @@ export function helpText(): string {
     "  --resume           resume the existing log at --session",
     "  --stream           drive model steps via the streaming seam",
     "  --max-steps <n>    cap the per-turn step budget",
+    "  --model <name>     the model name threaded to the adapter call",
+    "  --max-tokens <n>   the max-tokens cap threaded to the adapter call",
     "  --system <text>    an optional system prompt",
     "  --json             print the turn summary as JSON",
     "  --list             list the registered tools and exit",

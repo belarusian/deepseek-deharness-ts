@@ -1,9 +1,32 @@
 {
   "name": "deepseek-deharness-ts",
   "version": "0.1.0",
+  "description": "The inversion of deepseek-harness + cordis as plain, composable TypeScript modules.",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/belarusian/deepseek-deharness-ts.git"
+  },
+  "keywords": [
+    "deepseek",
+    "agent",
+    "llm",
+    "cli",
+    "session",
+    "tools"
+  ],
   "bin": {
     "deepseek": "dist/program/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
